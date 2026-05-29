@@ -2,7 +2,7 @@ import { AgGridTable } from "@/components/erp/AgGridTable";
 import { StatCard } from "@/components/erp/StatCard";
 import { ErpModal } from "@/components/erp/ErpModal";
 import { FilterBar } from "@/components/erp/FilterBar";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/components/ui/Input";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, Pencil, Trash2, CheckCircle, XCircle } from "lucide-react";
