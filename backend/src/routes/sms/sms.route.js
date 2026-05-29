@@ -1,0 +1,72 @@
+import { Router } from "express";
+import { authMiddleware } from "../../middlewares/auth.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import {
+  getSmsSettings,
+  upsertSmsSettings,
+  testSmsConnection,
+  deleteSmsSettings,
+} from "../../controllers/sms/sms-settings.controller.js";
+import {
+  getAllSmsTemplates,
+  getSmsTemplateById,
+  createSmsTemplate,
+  updateSmsTemplate,
+  deleteSmsTemplate,
+  getDefaultTemplates,
+  seedDefaultTemplates,
+} from "../../controllers/sms/sms-templates.controller.js";
+import {
+  getAbsentRecipients,
+  getFeeRecipients,
+  getExamRecipients,
+  sendSmsToParents,
+  getSmsLogs,
+  retrySms,
+  getSmsStatistics,
+} from "../../controllers/sms/sms.controller.js";
+import {
+  upsertSmsSettingsValidator,
+  testSmsConnectionValidator,
+  createSmsTemplateValidator,
+  updateSmsTemplateValidator,
+  deleteSmsTemplateValidator,
+  getAbsentRecipientsValidator,
+  getFeeRecipientsValidator,
+  getExamRecipientsValidator,
+  sendSmsToParentsValidator,
+  retrySmsValidator,
+  getSmsLogsValidator,
+} from "../../validator/sms/sms.validator.js";
+
+const router = Router();
+// router.use(authMiddleware);
+// ─── SMS SETTINGS ROUTES ───────────────────────────────────────────────────────
+router.get("/settings",  getSmsSettings);
+router.post("/settings",  validate(upsertSmsSettingsValidator), upsertSmsSettings);
+router.post("/settings/test",  validate(testSmsConnectionValidator), testSmsConnection);
+router.delete("/settings",  deleteSmsSettings);
+
+// ─── SMS TEMPLATES ROUTES ──────────────────────────────────────────────────────
+router.get("/templates",  getAllSmsTemplates);
+router.get("/templates/default",  getDefaultTemplates);
+router.post("/templates/seed",  seedDefaultTemplates);
+router.get("/templates/:id",  getSmsTemplateById);
+router.post("/templates",  validate(createSmsTemplateValidator), createSmsTemplate);
+router.put("/templates/:id",  validate(updateSmsTemplateValidator), updateSmsTemplate);
+router.delete("/templates/:id",  validate(deleteSmsTemplateValidator), deleteSmsTemplate);
+
+// ─── SMS RECIPIENTS ROUTES ─────────────────────────────────────────────────────
+router.get("/recipients/absent",  validate(getAbsentRecipientsValidator), getAbsentRecipients);
+router.get("/recipients/fee",  validate(getFeeRecipientsValidator), getFeeRecipients);
+router.get("/recipients/exam",  validate(getExamRecipientsValidator), getExamRecipients);
+
+// ─── SMS SENDING ROUTES ────────────────────────────────────────────────────────
+router.post("/send",  validate(sendSmsToParentsValidator), sendSmsToParents);
+
+// ─── SMS LOGS & REPORTS ROUTES ─────────────────────────────────────────────────
+router.get("/logs",  validate(getSmsLogsValidator), getSmsLogs);
+router.post("/logs/:id/retry",  validate(retrySmsValidator), retrySms);
+router.get("/statistics",  getSmsStatistics);
+
+export default router;

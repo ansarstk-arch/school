@@ -1,0 +1,2 @@
+# This folder contains the local SQLite database
+# The database file (school.db) is ignored by git for security

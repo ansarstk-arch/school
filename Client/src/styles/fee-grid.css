@@ -1,0 +1,147 @@
+/* Fee Management AG-Grid Custom Styles */
+
+.ag-theme-alpine {
+  --ag-font-family: inherit;
+  --ag-font-size: 14px;
+  --ag-header-height: 48px;
+  --ag-row-height: 48px;
+}
+
+.ag-theme-alpine .ag-header-cell-label {
+  font-weight: 600;
+}
+
+.ag-theme-alpine .ag-cell {
+  display: flex;
+  align-items: center;
+}
+
+/* Button Icons in AG-Grid */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: hsl(var(--muted));
+}
+
+.btn-icon svg {
+  width: 16px;
+  height: 16px;
+  color: hsl(var(--foreground));
+}
+
+.btn-edit:hover {
+  background: hsl(217, 91%, 95%);
+  border-color: hsl(217, 91%, 60%);
+}
+
+.btn-edit:hover svg {
+  color: hsl(217, 91%, 60%);
+}
+
+.btn-print:hover {
+  background: hsl(142, 76%, 95%);
+  border-color: hsl(142, 76%, 36%);
+}
+
+.btn-print:hover svg {
+  color: hsl(142, 76%, 36%);
+}
+
+.btn-delete:hover {
+  background: hsl(0, 84%, 95%);
+  border-color: hsl(0, 84%, 60%);
+}
+
+.btn-delete:hover svg {
+  color: hsl(0, 84%, 60%);
+}
+
+/* Badge Styles in AG-Grid */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: hsl(142, 76%, 95%);
+  color: hsl(142, 76%, 36%);
+  border: 1px solid hsl(142, 76%, 80%);
+}
+
+.badge-warning {
+  background: hsl(38, 92%, 95%);
+  color: hsl(38, 92%, 50%);
+  border: 1px solid hsl(38, 92%, 80%);
+}
+
+.badge-destructive {
+  background: hsl(0, 84%, 95%);
+  color: hsl(0, 84%, 60%);
+  border: 1px solid hsl(0, 84%, 80%);
+}
+
+.badge-default {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}
+
+/* RTL Support for AG-Grid */
+.ag-theme-alpine.ag-rtl {
+  direction: rtl;
+}
+
+.ag-theme-alpine.ag-rtl .ag-header-cell-label {
+  flex-direction: row-reverse;
+}
+
+.ag-theme-alpine.ag-rtl .ag-cell {
+  text-align: right;
+}
+
+/* Loading Overlay */
+.ag-overlay-loading-wrapper {
+  background: hsl(var(--background));
+}
+
+/* Pagination Styles */
+.ag-paging-panel {
+  border-top: 1px solid hsl(var(--border));
+  padding: 12px;
+  background: hsl(var(--card));
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .ag-theme-alpine {
+    --ag-font-size: 12px;
+    --ag-header-height: 40px;
+    --ag-row-height: 40px;
+  }
+  
+  .btn-icon {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .btn-icon svg {
+    width: 14px;
+    height: 14px;
+  }
+}

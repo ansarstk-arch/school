@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.4rem;
+  --background: 210 20% 98%;
+  --foreground: 222 20% 18%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 20% 18%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 20% 18%;
+  --primary: 222 30% 20%;
+  --primary-foreground: 210 20% 98%;
+  --secondary: 210 15% 95%;
+  --secondary-foreground: 222 20% 20%;
+  --muted: 210 15% 95%;
+  --muted-foreground: 215 15% 50%;
+  --accent: 210 12% 93%;
+  --accent-foreground: 222 20% 20%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 20% 98%;
+  --success: 152 55% 40%;
+  --success-foreground: 0 0% 99%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 20% 18%;
+  --info: 217 70% 50%;
+  --info-foreground: 0 0% 99%;
+  --border: 214 20% 90%;
+  --input: 214 20% 91%;
+  --ring: 215 20% 55%;
+  --sidebar: 222 20% 18%;
+  --sidebar-foreground: 210 15% 85%;
+  --sidebar-accent: 222 18% 24%;
+  --sidebar-accent-foreground: 0 0% 99%;
+  --sidebar-border: 222 18% 28%;
+}
+
+.dark {
+  --background: 222 20% 14%;
+  --foreground: 210 15% 96%;
+  --card: 222 20% 18%;
+  --card-foreground: 210 15% 96%;
+  --popover: 222 20% 18%;
+  --popover-foreground: 210 15% 96%;
+  --primary: 210 15% 85%;
+  --primary-foreground: 222 20% 18%;
+  --secondary: 222 18% 24%;
+  --secondary-foreground: 210 15% 96%;
+  --muted: 222 18% 24%;
+  --muted-foreground: 215 15% 70%;
+  --accent: 222 18% 26%;
+  --accent-foreground: 210 15% 96%;
+  --border: 222 18% 28%;
+  --input: 222 18% 30%;
+  --ring: 215 20% 55%;
+  --sidebar: 222 20% 12%;
+  --sidebar-foreground: 210 15% 85%;
+  --sidebar-accent: 222 18% 20%;
+  --sidebar-accent-foreground: 0 0% 99%;
+  --sidebar-border: 222 18% 22%;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { letter-spacing: -0.01em; }
+}
+
+/* react-modal overlay */
+.ReactModal__Overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.ReactModal__Overlay--after-open { opacity: 1; }
+.ReactModal__Overlay--before-close { opacity: 0; }
+
+.ReactModal__Content {
+  position: relative;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  transform: scale(0.95);
+  opacity: 0;
+  transition: transform 200ms ease-out, opacity 200ms ease-out;
+}
+.ReactModal__Content--after-open { transform: scale(1); opacity: 1; }
+.ReactModal__Content--before-close { transform: scale(0.95); opacity: 0; }
+
+/* Print styles */
+@media print {
+  body { background: white !important; }
+  .no-print { display: none !important; }
+  .print-page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 12mm;
+    margin: 0 auto;
+    background: white;
+    color: black;
+    box-shadow: none !important;
+  }
+  @page { size: A4; margin: 0; }
+}
+
+/* Sticky table header */
+.erp-table thead th {
+  position: sticky;
+  top: 0;
+  background: hsl(var(--muted));
+  z-index: 1;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }

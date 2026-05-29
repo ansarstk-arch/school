@@ -1,0 +1,214 @@
+/* ─── AG Grid ERP Theme ───────────────────────────────────────────────────────
+   Fully driven by CSS custom properties so it automatically adapts to
+   both light (.root) and dark (.dark) modes without any extra overrides.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.ag-theme-erp {
+  /* ── Core colours ── */
+  --ag-background-color:            hsl(var(--card));
+  --ag-foreground-color:            hsl(var(--foreground));
+  --ag-border-color:                hsl(var(--border));
+  --ag-secondary-border-color:      hsl(var(--border));
+
+  /* ── Header ── */
+  --ag-header-background-color:     hsl(var(--muted));
+  --ag-header-foreground-color:     hsl(var(--muted-foreground));
+  --ag-header-column-separator-color: hsl(var(--border));
+  --ag-header-column-resize-handle-color: hsl(var(--border));
+
+  /* ── Rows ── */
+  --ag-odd-row-background-color:    hsl(var(--card));
+  --ag-row-hover-color:             hsl(var(--accent));
+  --ag-selected-row-background-color: hsl(var(--accent));
+
+  /* ── Misc ── */
+  --ag-range-selection-border-color: hsl(var(--primary));
+  --ag-input-focus-border-color:    hsl(var(--ring));
+  --ag-row-border-color:            hsl(var(--border));
+  --ag-cell-horizontal-border:      none;
+
+  /* ── Typography ── */
+  --ag-font-family:   inherit;
+  --ag-font-size:     0.8125rem;   /* 13 px */
+
+  /* ── Sizing ── */
+  --ag-row-height:    40px;
+  --ag-header-height: 36px;
+  --ag-cell-horizontal-padding: 14px;
+  --ag-list-item-height: 24px;
+
+  /* ── Scrollbar ── */
+  --ag-scrollbar-size: 5px;
+}
+
+/* ─── Wrapper ────────────────────────────────────────────────────────────────*/
+.ag-theme-erp .ag-root-wrapper {
+  border: none;
+  border-radius: 0;
+  background-color: hsl(var(--card));
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────────*/
+.ag-theme-erp .ag-header {
+  border-bottom: 1px solid hsl(var(--border));
+  background-color: hsl(var(--muted));
+}
+
+.ag-theme-erp .ag-header-cell {
+  padding: 0 14px;
+  font-size: 0.6875rem;       /* 11 px */
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+}
+
+.ag-theme-erp .ag-header-cell:hover {
+  background-color: hsl(var(--accent));
+}
+
+.ag-theme-erp .ag-header-cell-label {
+  gap: 4px;
+}
+
+/* sort icon colour */
+.ag-theme-erp .ag-sort-indicator-icon {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.7;
+}
+.ag-theme-erp .ag-header-cell-sorted-asc .ag-sort-indicator-icon,
+.ag-theme-erp .ag-header-cell-sorted-desc .ag-sort-indicator-icon {
+  color: hsl(var(--foreground));
+  opacity: 1;
+}
+
+/* column separator */
+.ag-theme-erp .ag-header-cell::after {
+  background-color: hsl(var(--border));
+  opacity: 0.6;
+}
+
+/* ─── Rows ───────────────────────────────────────────────────────────────────*/
+.ag-theme-erp .ag-row {
+  border-bottom: 1px solid hsl(var(--border));
+  transition: background-color 0.15s ease;
+  background-color: hsl(var(--card));
+  cursor: pointer;
+}
+
+.ag-theme-erp .ag-row:last-child {
+  border-bottom: none;
+}
+
+.ag-theme-erp .ag-row-even {
+  background-color: hsl(var(--card));
+}
+
+.ag-theme-erp .ag-row-odd {
+  background-color: hsl(var(--muted) / 0.3);
+}
+
+.ag-theme-erp .ag-row-hover,
+.ag-theme-erp .ag-row-hover.ag-row-odd,
+.ag-theme-erp .ag-row-hover.ag-row-even {
+  background-color: hsl(var(--accent)) !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+}
+
+/* ─── Cells ──────────────────────────────────────────────────────────────────*/
+.ag-theme-erp .ag-cell {
+  padding: 0 14px;
+  line-height: 42px;
+  color: hsl(var(--foreground));
+  border-right: none !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cells with custom renderers (badges, buttons, etc.) */
+.ag-theme-erp .ag-cell .flex {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.ag-theme-erp .ag-cell:focus,
+.ag-theme-erp .ag-cell-focus {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ─── Overlays ───────────────────────────────────────────────────────────────*/
+.ag-theme-erp .ag-overlay-loading-wrapper,
+.ag-theme-erp .ag-overlay-no-rows-wrapper {
+  background-color: hsl(var(--card));
+}
+
+/* ─── Loading spinner ────────────────────────────────────────────────────────*/
+.erp-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid hsl(var(--border));
+  border-top-color: hsl(var(--primary));
+  border-radius: 50%;
+  animation: erp-spin 0.75s linear infinite;
+}
+
+@keyframes erp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Built-in pagination panel (completely hidden when using custom pagination) ───────*/
+.ag-theme-erp .ag-paging-panel {
+  display: none !important;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────*/
+.ag-theme-erp ::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.ag-theme-erp ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ag-theme-erp ::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 99px;
+}
+
+.ag-theme-erp ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.45);
+}
+
+/* ─── RTL ────────────────────────────────────────────────────────────────────*/
+.ag-theme-erp.ag-rtl .ag-header-cell-label {
+  justify-content: flex-end;
+}
+
+.ag-theme-erp.ag-rtl .ag-cell {
+  text-align: right;
+}
+
+/* ─── Pashto / Dari text rendering ──────────────────────────────────────────*/
+.ag-theme-erp .ag-cell,
+.ag-theme-erp .ag-header-cell-text {
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Remove stray borders AG Grid sometimes injects ─────────────────────────*/
+.ag-theme-erp .ag-cell-no-focus,
+.ag-theme-erp .ag-has-focus .ag-cell-no-focus {
+  border: none !important;
+}
+
+.ag-theme-erp .ag-ltr .ag-cell {
+  border-right: none !important;
+}
+
+.ag-theme-erp .ag-rtl .ag-cell {
+  border-left: none !important;
+}
