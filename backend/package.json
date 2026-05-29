@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "build": "echo 'Backend build complete' && npm run db:push",
+    "build": "echo 'Backend build complete' && echo 'Database migrations should be run separately'",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -24,6 +24,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.1",
     "drizzle-orm": "^0.45.2",
+    "drizzle-kit": "^0.31.10",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
@@ -39,7 +40,6 @@
   },
   "devDependencies": {
     "better-sqlite3": "^12.10.0",
-    "drizzle-kit": "^0.31.10",
     "nodemon": "^3.0.0"
   }
 }
