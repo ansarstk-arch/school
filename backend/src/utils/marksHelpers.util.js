@@ -9,6 +9,7 @@ import {
   examSubjectConfig,
 } from "../db/schema.js";
 import ApiError from "./ApiError.util.js";
+import { isDefaultSchoolExam } from "./schoolExamHelpers.util.js";
 
 const INSTITUTION_TYPES = ["School", "Center", "Madrasa"];
 
@@ -174,8 +175,8 @@ export const getConfigForSubject = async (examId, classId, subjectId) => {
 };
 
 /**
- * Calculate total marks for a subject across all School exams in an academic year
- * Used to enforce the 100-mark limit for School institution type
+ * Calculate total marks for a subject across default School exams (څلور نیمه + سالانه)
+ * Custom School exams are excluded from the 100-mark yearly limit.
  */
 export const calculateSchoolYearlyTotalMarks = async (
   subjectId,
@@ -183,29 +184,17 @@ export const calculateSchoolYearlyTotalMarks = async (
   academicYear,
   excludeExamId = null
 ) => {
-  // Get all School exams for this academic year
-  const schoolExams = await db
-    .select({ id: exams.id })
-    .from(exams)
-    .where(
-      and(
-        eq(exams.institutionType, "School"),
-        eq(exams.academicYear, academicYear)
-      )
-    );
+  const { getDefaultSchoolExamIds } = await import("./schoolExamHelpers.util.js");
+  const examIds = await getDefaultSchoolExamIds(academicYear);
 
-  const examIds = schoolExams.map(e => e.id);
-  
   if (examIds.length === 0) return 0;
 
-  // Get all configs for this subject and class across all School exams
   const conditions = [
     eq(examSubjectConfig.subjectId, Number(subjectId)),
     eq(examSubjectConfig.classId, Number(classId)),
-    inArray(examSubjectConfig.examId, examIds)
+    inArray(examSubjectConfig.examId, examIds),
   ];
 
-  // Exclude current exam if updating
   if (excludeExamId) {
     conditions.push(sql`${examSubjectConfig.examId} != ${Number(excludeExamId)}`);
   }
@@ -215,9 +204,7 @@ export const calculateSchoolYearlyTotalMarks = async (
     .from(examSubjectConfig)
     .where(and(...conditions));
 
-  // Sum up all total marks
-  const total = configs.reduce((sum, config) => sum + Number(config.totalMarks || 0), 0);
-  return total;
+  return configs.reduce((sum, config) => sum + Number(config.totalMarks || 0), 0);
 };
 
 /**
@@ -233,12 +220,15 @@ export const validateSchoolYearlyTotal = async (
 ) => {
   // Get the exam to check if it's a School exam
   const [exam] = await db
-    .select({ institutionType: exams.institutionType })
+    .select({ institutionType: exams.institutionType, examTitle: exams.examTitle, examType: exams.examType })
     .from(exams)
     .where(eq(exams.id, Number(examId)));
 
-  // Only validate for School type
   if (!exam || exam.institutionType !== "School") {
+    return { valid: true, currentTotal: 0, newTotal: 0, remaining: 100 };
+  }
+
+  if (!isDefaultSchoolExam(exam)) {
     return { valid: true, currentTotal: 0, newTotal: 0, remaining: 100 };
   }
 

@@ -76,9 +76,10 @@ export function AgGridTable({
   const headerH = isMobile ? 40 : 44;
   const rowH = isMobile ? 44 : 48;
   const visibleRowCount = displayedRowData?.length ?? 0;
-  const rowsForHeight = Math.min(pageSize, Math.max(visibleRowCount, 1));
-  const gridHeight = headerH + rowH * rowsForHeight + 6;
-  const needsVerticalScroll = visibleRowCount > 0 && visibleRowCount >= rowsForHeight;
+  const useAutoHeight = visibleRowCount > 0;
+  const rowsForHeight = Math.max(visibleRowCount, 1);
+  const gridHeight = headerH + rowH * rowsForHeight + visibleRowCount + 8;
+  const needsVerticalScroll = !useAutoHeight && visibleRowCount > pageSize;
 
   useEffect(() => {
     if (useClientPaging && clientPage > clientTotalPages) {
@@ -411,8 +412,8 @@ export function AgGridTable({
 
       {/* AG-Grid Table */}
       <div
-        className={`modern-ag-grid ${enableRtl ? "rtl-mode" : ""} ${isMobile ? "modern-ag-grid--mobile" : ""}`}
-        style={{ height: gridHeight }}
+        className={`modern-ag-grid ${enableRtl ? "rtl-mode" : ""} ${isMobile ? "modern-ag-grid--mobile" : ""} ${useAutoHeight ? "modern-ag-grid--auto-height" : ""}`}
+        style={useAutoHeight ? undefined : { height: gridHeight }}
       >
         {loading ? (
           <div className="table-overlay">
@@ -432,7 +433,7 @@ export function AgGridTable({
             onSortChanged={onSortChanged}
             onSelectionChanged={handleSelectionChanged}
             onCellValueChanged={onCellValueChanged}
-            domLayout="normal"
+            domLayout={useAutoHeight ? "autoHeight" : "normal"}
             rowHeight={isMobile ? 44 : 48}
             headerHeight={isMobile ? 40 : 44}
             animateRows={false}

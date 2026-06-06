@@ -233,6 +233,19 @@
   overflow: hidden;
 }
 
+.modern-ag-grid--auto-height {
+  min-height: 0;
+  overflow: visible;
+}
+
+.modern-ag-grid--auto-height .ag-root-wrapper {
+  height: auto !important;
+}
+
+.modern-ag-grid--auto-height .ag-body-viewport {
+  overflow-y: visible !important;
+}
+
 /* ─── AG-Grid Root ─────────────────────────────────────────────────────────── */
 .modern-ag-grid .ag-root-wrapper {
   border: none;

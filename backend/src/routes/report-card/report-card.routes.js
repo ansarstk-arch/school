@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authMiddleware } from "../../middlewares/auth.middleware.js";
 import {
   getStudentReportCard,
   getClassReportCards,
@@ -6,10 +7,9 @@ import {
 
 const router = Router();
 
-// Get single student report card
-router.get("/student", getStudentReportCard);
+router.use(authMiddleware);
 
-// Get all report cards for a class
+router.get("/student", getStudentReportCard);
 router.get("/class", getClassReportCards);
 
 export default router;

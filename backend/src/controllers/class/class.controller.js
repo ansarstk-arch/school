@@ -4,6 +4,7 @@ import db from "../../configs/db/db.config.js";
 import { classes, teachers, exams } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
 import { currentShamsiYear } from "../../lib/afghan-date.js";
+import { syncSchoolExamClassAssignments } from "../../utils/schoolExamHelpers.util.js";
 import { assertInstitutionAccess } from "../../utils/permissions.util.js";
 
 // ─── GET ALL CLASSES ───────────────────────────────────────────────────────────
@@ -156,32 +157,8 @@ export const createClass = asyncHandler(async (req, res) => {
     supervisorId: supervisorId ? Number(supervisorId) : null,
   }).returning();
 
-  // Auto-create exams for School type only
   if (type === "School") {
-    const assignedClasses = JSON.stringify([newClass.id]);
-    
-    await db.insert(exams).values([
-      {
-        examTitle: `لومړی ازموینه - ${name.trim()}${section ? ` (${section.trim()})` : ''} - ${academicYear}`,
-        examType: "FirstTerm",
-        institutionType: "School",
-        assignedClasses,
-        startDate: `${academicYear}-06-01`,
-        endDate: `${academicYear}-06-15`,
-        status: "فعال",
-        academicYear,
-      },
-      {
-        examTitle: `کلنۍ ازموینه - ${name.trim()}${section ? ` (${section.trim()})` : ''} - ${academicYear}`,
-        examType: "Annual",
-        institutionType: "School",
-        assignedClasses,
-        startDate: `${academicYear}-12-01`,
-        endDate: `${academicYear}-12-15`,
-        status: "فعال",
-        academicYear,
-      },
-    ]);
+    await syncSchoolExamClassAssignments(academicYear);
   }
 
   res.respond(201, "ټولګی بریالیتوب سره ثبت شو", { class: newClass });

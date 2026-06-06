@@ -4,6 +4,13 @@ import db from "../../configs/db/db.config.js";
 import { exams, classes } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
 import { currentShamsiYear } from "../../lib/afghan-date.js";
+import {
+  ensureDefaultSchoolExamsForYear,
+  syncSchoolExamClassAssignments,
+  isDefaultSchoolExamTitle,
+  DEFAULT_SCHOOL_EXAM_TITLES,
+  DEFAULT_SCHOOL_EXAM_TYPES,
+} from "../../utils/schoolExamHelpers.util.js";
 
 // Helper: Parse assigned classes from JSON string or array
 const parseAssignedClasses = (assignedClasses) => {
@@ -42,35 +49,6 @@ const validateAssignedClasses = async (classIds, institutionType, academicYear) 
   }
 
   return existingClasses;
-};
-
-const DEFAULT_SCHOOL_EXAMS = ["څلور نیمه", "سالانه"];
-const ensureDefaultSchoolExamsForYear = async (academicYear) => {
-  const year = String(academicYear || currentShamsiYear());
-  const schoolClasses = await db
-    .select({ id: classes.id })
-    .from(classes)
-    .where(and(eq(classes.type, "School"), eq(classes.academicYear, year)));
-  const schoolClassIds = schoolClasses.map((c) => c.id);
-
-  const existing = await db
-    .select({ examTitle: exams.examTitle })
-    .from(exams)
-    .where(and(eq(exams.institutionType, "School"), eq(exams.academicYear, year)));
-  const existingTitles = new Set(existing.map((e) => e.examTitle));
-
-  for (const title of DEFAULT_SCHOOL_EXAMS) {
-    if (existingTitles.has(title)) continue;
-    await db.insert(exams).values({
-      examTitle: title,
-      institutionType: "School",
-      assignedClasses: JSON.stringify(schoolClassIds),
-      startDate: `${year}-01-01`,
-      endDate: `${year}-12-30`,
-      status: "فعال",
-      academicYear: year,
-    });
-  }
 };
 
 // ─── AUTO UPDATE EXAM STATUS ──────────────────────────────────────────────────
@@ -228,16 +206,15 @@ export const getExamById = asyncHandler(async (req, res) => {
 
 // ─── CREATE EXAM ───────────────────────────────────────────────────────────────
 export const createExam = asyncHandler(async (req, res) => {
-  const { examTitle, institutionType, assignedClasses, startDate, endDate, status, academicYear } = req.body;
-  if (institutionType === "School") {
-    throw new ApiError(400, "د ښوونځي لپاره امتحان په لاس نه شي جوړېدای. یوازې ټاکل شوي ډیفالټ امتحانونه کارول کیږي.");
+  const { examTitle, institutionType, assignedClasses, startDate, endDate, status, academicYear, examType } = req.body;
+
+  if (institutionType === "School" && isDefaultSchoolExamTitle(examTitle?.trim())) {
+    throw new ApiError(400, "د ښوونځي ډیفالټ امتحانات (څلور نیمه، سالانه) په لاس نه شي جوړېدای");
   }
 
-  // Parse and validate assigned classes
   const classIds = parseAssignedClasses(assignedClasses);
   await validateAssignedClasses(classIds, institutionType, academicYear);
 
-  // Check for duplicate exam title in the same academic year and institution
   const existingExam = await db
     .select({ id: exams.id })
     .from(exams)
@@ -253,11 +230,14 @@ export const createExam = asyncHandler(async (req, res) => {
     throw new ApiError(400, "دا د امتحان نوم دمخه شتون لري");
   }
 
-  // Create the exam
+  const resolvedExamType =
+    institutionType === "School" ? (examType || "Custom") : (examType || "Custom");
+
   const [newExam] = await db
     .insert(exams)
     .values({
       examTitle: examTitle.trim(),
+      examType: resolvedExamType,
       institutionType,
       assignedClasses: JSON.stringify(classIds),
       startDate,
@@ -295,7 +275,10 @@ export const updateExam = asyncHandler(async (req, res) => {
     throw new ApiError(404, "امتحان ونه موندل شو");
   }
 
-  // Parse and validate assigned classes
+  if (isDefaultSchoolExamTitle(existingExam.examTitle)) {
+    throw new ApiError(400, "د ښوونځي ډیفالټ امتحان نشي سمول کیدای");
+  }
+
   const classIds = parseAssignedClasses(assignedClasses);
   await validateAssignedClasses(classIds, institutionType, academicYear);
 
@@ -359,7 +342,10 @@ export const deleteExam = asyncHandler(async (req, res) => {
     throw new ApiError(404, "امتحان ونه موندل شو");
   }
 
-  // Delete the exam (cascade will handle exam results)
+  if (isDefaultSchoolExamTitle(existingExam.examTitle)) {
+    throw new ApiError(400, "د ښوونځي ډیفالټ امتحان نشي ړنګېدای");
+  }
+
   await db.delete(exams).where(eq(exams.id, Number(id)));
 
   res.respond(200, "امتحان بریالي ړنګ شو", { 

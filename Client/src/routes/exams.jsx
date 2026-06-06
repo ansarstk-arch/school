@@ -23,7 +23,12 @@ const F = ({ label, opt, error, children }) => (
   </label>
 );
 
+const DEFAULT_SCHOOL_EXAM_TITLES = ["څلور نیمه", "سالانه"];
+const isDefaultSchoolExam = (exam) =>
+  exam?.institutionType === "School" && DEFAULT_SCHOOL_EXAM_TITLES.includes(exam?.examTitle);
+
 const INSTITUTION_TYPES = [
+  { value: "School",  label: "ښوونځی", variant: "info"    },
   { value: "Center",  label: "مرکز",   variant: "muted"   },
   { value: "Madrasa", label: "مدرسه",  variant: "warning" },
 ];
@@ -315,7 +320,9 @@ export default function ExamsPage() {
       width: 140,
       sortable: false,
       filter: false,
-      cellRenderer: (params) => (
+      cellRenderer: (params) => {
+        const isDefault = isDefaultSchoolExam(params.data);
+        return (
         <div className="flex items-center gap-1">
           <button
             onClick={() => openViewModal(params.data)}
@@ -324,25 +331,30 @@ export default function ExamsPage() {
           >
             <Eye className="size-3.5" />
           </button>
-          <button
-            onClick={() => openEditForm(params.data)}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title="سمول"
-          >
-            <Pencil className="size-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              setDeleteId(params.data.id);
-              setDeleteOpen(true);
-            }}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
-            title="ړنګول"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+          {!isDefault && (
+            <>
+              <button
+                onClick={() => openEditForm(params.data)}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="سمول"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  setDeleteId(params.data.id);
+                  setDeleteOpen(true);
+                }}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                title="ړنګول"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </>
+          )}
         </div>
-      ),
+        );
+      },
     },
   ], []);
 

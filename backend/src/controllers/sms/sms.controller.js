@@ -133,6 +133,30 @@ const buildParentRecipients = async (studentRecords, institutionType, messageTyp
   return recipients;
 };
 
+/** Map UI recipient keys (phone:…, student:…) to a numeric id for sms_logs.recipient_id */
+const resolveLogRecipientId = (recipient) => {
+  const { parentId, studentId } = recipient;
+  if (typeof parentId === "number" && parentId > 0) return parentId;
+  if (typeof parentId === "string") {
+    const numeric = Number(parentId);
+    if (Number.isInteger(numeric) && numeric > 0) return numeric;
+    const studentMatch = parentId.match(/^student:(\d+)$/);
+    if (studentMatch) return Number(studentMatch[1]);
+  }
+  if (typeof studentId === "number" && studentId > 0) return studentId;
+  return 0;
+};
+
+const insertSmsLogs = async (values) => {
+  try {
+    const rows = await db.insert(smsLogs).values(values).returning({ id: smsLogs.id });
+    return rows[0]?.id ?? null;
+  } catch (err) {
+    console.error("[SMS] Failed to save SMS log:", err.message);
+    return null;
+  }
+};
+
 const normalizePhone = (input) => {
   if (!input) return null;
   const digits = String(input).replace(/\D/g, "");
@@ -154,12 +178,15 @@ const groupRecipientsByPhone = (recipients) => {
       groups.set(phone, {
         ...r,
         parentPhone: phone,
-        parentId: `phone:${phone}`,
+        parentId: typeof r.parentId === "number" ? r.parentId : `phone:${phone}`,
         studentIds: [r.studentId],
         studentNames: [r.studentName],
       });
     } else {
       const g = groups.get(phone);
+      if (typeof g.parentId !== "number" && typeof r.parentId === "number") {
+        g.parentId = r.parentId;
+      }
       if (!g.studentIds.includes(r.studentId)) {
         g.studentIds.push(r.studentId);
         g.studentNames.push(r.studentName);
@@ -471,14 +498,12 @@ export const sendSmsSingle = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
   const finalBatchId = batchId || uuidv4();
 
-  const logValues = studentIdsToLog.map((studentId, idx) => ({
+  const baseLogEntry = {
     batchId: finalBatchId,
     recipientType: "Parent",
-    recipientId: typeof recipient.parentId === "number" ? recipient.parentId : null,
+    recipientId: resolveLogRecipientId(recipient),
     recipientName: recipient.parentName,
     recipientPhone: recipient.parentPhone,
-    studentId,
-    studentName: recipient.studentNames?.[idx] || recipient.studentName,
     institutionType: recipient.institutionType,
     messageType,
     messageContent: message,
@@ -489,16 +514,23 @@ export const sendSmsSingle = asyncHandler(async (req, res) => {
     endpointId: endpoint.id,
     attendanceDate: ["Absent", "Present"].includes(messageType) ? attDate : null,
     sentBy: userId,
-  }));
+  };
 
-  const logs = await db.insert(smsLogs).values(logValues).returning();
-  const log = logs[0];
+  const logValues = studentIdsToLog.length > 0
+    ? studentIdsToLog.map((studentId, idx) => ({
+        ...baseLogEntry,
+        studentId,
+        studentName: recipient.studentNames?.[idx] || recipient.studentName,
+      }))
+    : [{ ...baseLogEntry, studentId: recipient.studentId ?? null, studentName: recipient.studentName ?? null }];
+
+  const logId = await insertSmsLogs(logValues);
 
   res.respond(200, smsResult.success ? "پیغام لیږل شو" : "پیغام ناکام شو", {
     success: smsResult.success,
     error: smsResult.error,
     isNetworkError: smsResult.isNetworkError,
-    logId: log.id,
+    logId,
     batchId: finalBatchId,
     name: recipient.parentName,
     phone: recipient.parentPhone,
@@ -547,14 +579,14 @@ export const sendSmsToParents = asyncHandler(async (req, res) => {
 
     const smsResult = await sendSmsMessage(endpoint, recipient.parentPhone, message);
 
-    await db.insert(smsLogs).values({
+    await insertSmsLogs({
       batchId,
       recipientType: "Parent",
-      recipientId: recipient.parentId,
+      recipientId: resolveLogRecipientId(recipient),
       recipientName: recipient.parentName,
       recipientPhone: recipient.parentPhone,
-      studentId: recipient.studentId,
-      studentName: recipient.studentName,
+      studentId: recipient.studentId ?? null,
+      studentName: recipient.studentName ?? null,
       institutionType: recipient.institutionType,
       messageType,
       messageContent: message,

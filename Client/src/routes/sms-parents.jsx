@@ -18,6 +18,18 @@ const BTN = "px-3 py-1.5 rounded text-xs font-medium transition-colors";
 const BTN_PRIMARY = `${BTN} bg-primary text-primary-foreground hover:opacity-90`;
 const BTN_OUTLINE = `${BTN} border border-input hover:bg-muted`;
 
+const toUserFriendlyError = (error) => {
+  const msg = error?.message || error?.data?.message || "";
+  if (
+    msg.includes("Failed query:") ||
+    msg.includes("SQLITE_") ||
+    /\b(insert|update|delete)\s+into\b/i.test(msg)
+  ) {
+    return "پیغام لیږل شو، خو ریکارډ خوندي کولو کې ستونزه وه";
+  }
+  return msg || "د پیغام لیږلو کې تېروتنه";
+};
+
 const messageTypes = [
   { value: "Absent", label: "د غیر حاضرۍ پیغام", desc: "نن غیر حاضر زده کوونکي" },
   { value: "Present", label: "د حاضرۍ پیغام", desc: "چې غیر حاضر و او اوس حاضر شوی" },
@@ -191,7 +203,7 @@ export default function SmsParents() {
           }
         }
       } catch (error) {
-        const errMsg = error.message || error.data?.message || "د پیغام لیږلو کې تېروتنه";
+        const errMsg = toUserFriendlyError(error);
         results.failed++;
         results.details.push({ phone: recipient.parentPhone, status: "failed", error: errMsg, name: recipient.parentName });
 
