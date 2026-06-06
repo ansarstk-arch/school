@@ -121,7 +121,7 @@ export const getStudentsByTypesAndClasses = asyncHandler(async (req, res) => {
 // ─── GET ALL PARENTS ───────────────────────────────────────────────────────────
 export const getAllParents = asyncHandler(async (req, res) => {
   const { 
-    id, name, phone, instituteType, classId, username, 
+    id, name, phone, instituteType, classId, username, academicYear,
     page = 1, limit = 50 
   } = req.query;
 
@@ -133,6 +133,13 @@ export const getAllParents = asyncHandler(async (req, res) => {
   if (phone)         conditions.push(like(parents.phone, `%${phone}%`));
   if (username)      conditions.push(like(parents.username, `%${username}%`));
   if (classId)       conditions.push(eq(parents.classId, Number(classId)));
+  
+  // Filter by academic year (use current year if not provided)
+  const defaultYear = new Date().getFullYear();
+  const year = academicYear || defaultYear;
+  if (year) {
+    conditions.push(like(parents.registeredAt, `${year}%`));
+  }
   
   // Filter by institute type (stored as JSON array)
   if (instituteType) {

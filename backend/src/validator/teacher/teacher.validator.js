@@ -20,6 +20,7 @@ const ERRORS = {
   idCardLength: "تذکیره نمبر باید د ۵ څخه تر ۲۰ توري پورې وي",
   educationRequired: "زده کړه اړینه ده",
   educationInvalid: "زده کړه باید سمه وي (۱۲ ګرېډ، ۱۴ ګرېډ، لیسانس، ماستري، دکتورا)",
+  salaryRequired: "معاش اړین دی",
   salaryInvalid: "معاش باید مثبت عدد وي",
   skillsMax: "مهارتونه باید د ۳۰۰ توري څخه لږ وي",
   addressInvalid: "پته یوازې پښتو، دري، انګلیسي توري او عددونه ولري",
@@ -53,8 +54,16 @@ const baseTeacherFields = [
     .isIn(EDUCATION_LEVELS).withMessage(ERRORS.educationInvalid),
 
   body("salary")
-    .optional({ checkFalsy: true })
+    .notEmpty().withMessage(ERRORS.salaryRequired)
     .isFloat({ min: 0 }).withMessage(ERRORS.salaryInvalid),
+
+  body("username")
+    .notEmpty().withMessage("د کارن نوم اړین دی")
+    .isLength({ min: 3, max: 50 }).withMessage("د کارن نوم باید د ۳ څخه تر ۵۰ توري پورې وي"),
+
+  body("password")
+    .notEmpty().withMessage("پاسورډ اړین دی")
+    .isLength({ min: 6 }).withMessage("پاسورډ باید لږ تر لږه ۶ توري ولري"),
 
   body("skills")
     .optional({ checkFalsy: true })
@@ -72,25 +81,19 @@ const baseTeacherFields = [
   body("teacherType")
     .optional({ checkFalsy: true })
     .custom((value) => {
-      // Parse JSON string if needed
       let types;
       try {
-        types = typeof value === 'string' ? JSON.parse(value) : value;
-      } catch (e) {
+        types = typeof value === "string" ? JSON.parse(value) : value;
+      } catch {
         throw new Error("د ښوونکي ډول په سمه توګه نه دی لیږل شوی");
       }
-
-      // Must be an array with at least one value
       if (!Array.isArray(types) || types.length === 0) {
         throw new Error("د ښوونکي ډول اړین دی - لږترلږه یو ډول وټاکئ");
       }
-
-      // All values must be valid types
-      const invalidTypes = types.filter(type => !TEACHER_TYPES.includes(type));
+      const invalidTypes = types.filter((type) => !TEACHER_TYPES.includes(type));
       if (invalidTypes.length > 0) {
         throw new Error("د ښوونکي ډول باید ښوونځی، مرکز یا مدرسه وي");
       }
-
       return true;
     }),
 
@@ -125,7 +128,7 @@ export const updateTeacherValidator = [
     .isIn(EDUCATION_LEVELS).withMessage(ERRORS.educationInvalid),
 
   body("salary")
-    .optional({ checkFalsy: true })
+    .optional({ checkFalsy: false })
     .isFloat({ min: 0 }).withMessage(ERRORS.salaryInvalid),
 
   body("skills")
@@ -144,31 +147,33 @@ export const updateTeacherValidator = [
   body("teacherType")
     .optional({ checkFalsy: true })
     .custom((value) => {
-      // Parse JSON string if needed
       let types;
       try {
-        types = typeof value === 'string' ? JSON.parse(value) : value;
-      } catch (e) {
+        types = typeof value === "string" ? JSON.parse(value) : value;
+      } catch {
         throw new Error("د ښوونکي ډول په سمه توګه نه دی لیږل شوی");
       }
-
-      // Must be an array with at least one value
       if (!Array.isArray(types) || types.length === 0) {
         throw new Error("د ښوونکي ډول اړین دی - لږترلږه یو ډول وټاکئ");
       }
-
-      // All values must be valid types
-      const invalidTypes = types.filter(type => !TEACHER_TYPES.includes(type));
+      const invalidTypes = types.filter((type) => !TEACHER_TYPES.includes(type));
       if (invalidTypes.length > 0) {
         throw new Error("د ښوونکي ډول باید ښوونځی، مرکز یا مدرسه وي");
       }
-
       return true;
     }),
 
   body("notes")
     .optional({ checkFalsy: true })
     .isLength({ max: 500 }).withMessage(ERRORS.notesMax),
+
+  body("username")
+    .optional({ checkFalsy: true })
+    .isLength({ min: 3, max: 50 }).withMessage("د کارن نوم باید د ۳ څخه تر ۵۰ توري پورې وي"),
+
+  body("password")
+    .optional({ checkFalsy: true })
+    .isLength({ min: 6 }).withMessage("پاسورډ باید لږ تر لږه ۶ توري ولري"),
 ];
 
 export const createApplicantValidator = [
@@ -206,6 +211,45 @@ export const createApplicantValidator = [
   body("notes")
     .optional({ checkFalsy: true })
     .isLength({ max: 500 }).withMessage(ERRORS.notesMax),
+];
+
+export const resetTeacherPasswordValidator = [
+  body("newPassword")
+    .trim()
+    .notEmpty()
+    .withMessage("نوی پاسورډ اړین دی")
+    .isLength({ min: 6 })
+    .withMessage("پاسورډ باید لږ تر لږه ۶ توري ولري"),
+];
+
+export const teacherAttendanceValidator = [
+  body("classId")
+    .notEmpty()
+    .withMessage("ټولګی اړین دی")
+    .isInt({ min: 1 })
+    .withMessage("ټولګی سم نه دی"),
+
+  body("attendanceDate")
+    .notEmpty()
+    .withMessage("د حاضرۍ نېټه اړینه ده")
+    .isDate()
+    .withMessage("د حاضرۍ نېټه باید سمه وي"),
+
+  body("attendanceData")
+    .isArray({ min: 1 })
+    .withMessage("د حاضرۍ معلومات اړین دي"),
+
+  body("attendanceData.*.personId")
+    .isInt({ min: 1 })
+    .withMessage("د زده کوونکي ID سم نه دی"),
+
+  body("attendanceData.*.status")
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === undefined || value === "") return true;
+      return ["Present", "Absent", "Leave"].includes(value);
+    })
+    .withMessage("د حاضرۍ حالت سم نه دی"),
 ];
 
 export const updateApplicantValidator = [

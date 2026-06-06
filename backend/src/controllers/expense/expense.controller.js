@@ -3,6 +3,9 @@ import { asyncHandler } from '../../utils/AsyncHandler.util.js';
 import db from '../../configs/db/db.config.js';
 import { expenses, expenseCategories, users } from '../../db/schema.js';
 import ApiError from '../../utils/ApiError.util.js';
+import { currentShamsiYear } from '../../utils/shamsiDate.util.js';
+import { columnInShamsiYear } from '../../utils/yearFilter.util.js';
+import { resolveInstitutionFilter, assertInstitutionAccess } from '../../utils/permissions.util.js';
 
 // ─── HELPER FUNCTIONS ──────────────────────────────────────────────────────────
 let hasExpensesPeriodTypeColumnCache = null;
@@ -20,7 +23,7 @@ const hasExpensesPeriodTypeColumn = async () => {
   return hasExpensesPeriodTypeColumnCache;
 };
 
-const buildExpenseConditions = ({ q, categoryId, instituteType, startDate, endDate }) => {
+const buildExpenseConditions = ({ q, categoryId, instituteType, academicYear, permissions, role }) => {
   const conditions = [];
 
   if (q) {
@@ -37,17 +40,16 @@ const buildExpenseConditions = ({ q, categoryId, instituteType, startDate, endDa
     conditions.push(eq(expenses.categoryId, Number(categoryId)));
   }
 
-  if (instituteType) {
-    conditions.push(eq(expenses.instituteType, instituteType));
+  const requestedType = instituteType?.trim() || null;
+  const institutionScope = resolveInstitutionFilter(permissions, role, requestedType);
+  if (institutionScope.value) {
+    conditions.push(eq(expenses.instituteType, institutionScope.value));
+  } else if (institutionScope.allowed.length < 3) {
+    conditions.push(inArray(expenses.instituteType, institutionScope.allowed));
   }
 
-  if (startDate) {
-    conditions.push(sql`${expenses.date} >= ${startDate}`);
-  }
-
-  if (endDate) {
-    conditions.push(sql`${expenses.date} <= ${endDate}`);
-  }
+  const year = academicYear || String(currentShamsiYear());
+  conditions.push(columnInShamsiYear(expenses.date, year));
 
   return conditions.length ? and(...conditions) : undefined;
 };
@@ -223,8 +225,7 @@ export const listExpenses = asyncHandler(async (req, res) => {
     q,
     categoryId,
     instituteType,
-    startDate,
-    endDate,
+    academicYear,
     page = 1,
     limit = 10,
     sortBy = 'date',
@@ -232,7 +233,40 @@ export const listExpenses = asyncHandler(async (req, res) => {
   } = req.query;
 
   const offset = (Number(page) - 1) * Number(limit);
-  const whereClause = buildExpenseConditions({ q, categoryId, instituteType, startDate, endDate });
+  
+  // Build conditions with year filter
+  const conditions = [];
+  
+  if (q) {
+    const queryPattern = `%${q}%`;
+    conditions.push(
+      or(
+        like(expenses.title, queryPattern),
+        like(expenses.description, queryPattern)
+      )
+    );
+  }
+
+  if (categoryId) {
+    conditions.push(eq(expenses.categoryId, Number(categoryId)));
+  }
+
+  const year = academicYear || String(currentShamsiYear());
+  conditions.push(columnInShamsiYear(expenses.date, year));
+
+  const requestedType = instituteType?.trim() || null;
+  const institutionScope = resolveInstitutionFilter(
+    req.user?.permissions,
+    req.user?.role,
+    requestedType
+  );
+  if (institutionScope.value) {
+    conditions.push(eq(expenses.instituteType, institutionScope.value));
+  } else if (institutionScope.allowed.length < 3) {
+    conditions.push(inArray(expenses.instituteType, institutionScope.allowed));
+  }
+  
+  const whereClause = conditions.length ? and(...conditions) : undefined;
 
   // Define sort fields
   const sortFields = {
@@ -348,6 +382,8 @@ export const createExpense = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'کټګوري ونه موندل شوه');
   }
 
+  assertInstitutionAccess(req.user?.permissions, req.user?.role, instituteType);
+
   const validPeriod = ["daily", "monthly", "yearly"].includes(periodType) ? periodType : "daily";
 
   const hasPeriodType = await hasExpensesPeriodTypeColumn();
@@ -428,6 +464,11 @@ export const updateExpense = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'لګښت ونه موندل شو');
   }
 
+  assertInstitutionAccess(req.user?.permissions, req.user?.role, existing.instituteType);
+  if (instituteType !== undefined) {
+    assertInstitutionAccess(req.user?.permissions, req.user?.role, instituteType);
+  }
+
   // Validate category if provided
   if (categoryId) {
     const [category] = await db
@@ -493,6 +534,8 @@ export const deleteExpense = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'لګښت ونه موندل شو');
   }
 
+  assertInstitutionAccess(req.user?.permissions, req.user?.role, existing.instituteType);
+
   await db
     .delete(expenses)
     .where(eq(expenses.id, Number(id)));
@@ -501,8 +544,15 @@ export const deleteExpense = asyncHandler(async (req, res) => {
 });
 
 export const getStatistics = asyncHandler(async (req, res) => {
-  const { q, categoryId, instituteType, startDate, endDate } = req.query;
-  const whereClause = buildExpenseConditions({ q, categoryId, instituteType, startDate, endDate });
+  const { q, categoryId, instituteType, academicYear } = req.query;
+  const whereClause = buildExpenseConditions({
+    q,
+    categoryId,
+    instituteType,
+    academicYear,
+    permissions: req.user?.permissions,
+    role: req.user?.role,
+  });
 
   // Total expenses
   const totalQuery = db

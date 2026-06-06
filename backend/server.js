@@ -16,6 +16,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server runs at port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+
+app.listen(PORT, HOST, () => {
+  console.log(`Server runs at http://localhost:${PORT}`);
+  if (HOST === "0.0.0.0") {
+    console.log(`Network access: http://<your-ip>:${PORT}`);
+  }
 });

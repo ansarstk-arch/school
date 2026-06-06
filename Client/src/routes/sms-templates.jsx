@@ -23,6 +23,7 @@ const F = ({ label, opt, error, children }) => (
 
 const templateTypes = [
   { value: "Absent", label: "د غیر حاضرۍ پیغام" },
+  { value: "Present", label: "د حاضرۍ پیغام" },
   { value: "Fee", label: "د فیس یادونه" },
   { value: "ExamPass", label: "د ازموینې بریالیتوب" },
   { value: "ExamFail", label: "د ازموینې ناکامي" },
@@ -33,6 +34,7 @@ const templateTypes = [
 const availableVariables = {
   common: ["parentName", "studentName", "className", "date", "institutionType"],
   Absent: [],
+  Present: [],
   Fee: ["month", "amount"],
   ExamPass: ["examName", "position", "totalMarks", "obtainedMarks", "percentage"],
   ExamFail: ["examName", "totalMarks", "obtainedMarks"],

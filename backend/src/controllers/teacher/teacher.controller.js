@@ -1,8 +1,11 @@
-import { eq, like, and, desc, sql, gte, lte } from "drizzle-orm";
+import { eq, like, and, desc, sql, gte, lte, inArray } from "drizzle-orm";
 import { asyncHandler } from "../../utils/AsyncHandler.util.js";
 import db from "../../configs/db/db.config.js";
-import { teachers, teacherApplicants } from "../../db/schema.js";
+import { teachers, teacherApplicants, users, salaries, classes, attendance, students } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
+import { hashPassword } from "../../utils/hash.util.js";
+import { currentShamsiYear, currentShamsiYearMonth } from "../../utils/shamsiDate.util.js";
+import { columnInShamsiYear } from "../../utils/yearFilter.util.js";
 import { compressImage, deleteImage, getImageUrl } from "../../utils/imageProcessor.util.js";
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,19 +28,86 @@ const processUploadedImage = async (file) => {
   }
 };
 
-// Helper: attach imageUrl and qualification alias to a teacher record
-const withImageUrl = (record) => {
+const parseTeacherRecord = (record) => {
   if (!record) return record;
   return {
     ...record,
     imageUrl: record.image ? getImageUrl(record.image) : null,
     qualification: record.education || null,
+    teacherType: record.teacherType
+      ? (typeof record.teacherType === "string" ? JSON.parse(record.teacherType) : record.teacherType)
+      : ["School"],
+    assignedClasses: record.assignedClasses
+      ? (typeof record.assignedClasses === "string" ? JSON.parse(record.assignedClasses) : record.assignedClasses)
+      : [],
   };
+};
+
+const withImageUrl = (record) => parseTeacherRecord(record);
+
+const extractUsername = (email) => {
+  if (!email) return null;
+  return email.endsWith("@school.local") ? email.replace("@school.local", "") : email;
+};
+
+const attachUserInfo = async (teacher) => {
+  const parsed = withImageUrl(teacher);
+  if (!teacher.userId) return { ...parsed, username: null };
+  const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, teacher.userId));
+  return { ...parsed, username: extractUsername(user?.email) };
+};
+
+const syncTeacherUserAccount = async ({ teacher, name, username, password }) => {
+  if (!teacher.userId) {
+    if (!username?.trim() || !password?.trim()) return;
+    const email = `${String(username).trim().toLowerCase()}@school.local`;
+    const [dup] = await db.select().from(users).where(eq(users.email, email));
+    if (dup) throw new ApiError(400, "دا کارن نوم دمخه شتون لري");
+    const hashed = await hashPassword(password);
+    const [newUser] = await db.insert(users).values({
+      name: name || teacher.name,
+      email,
+      password: hashed,
+      role: "teacher",
+      permissions: "{}",
+      isActive: teacher.status === "active",
+    }).returning({ id: users.id });
+    await db.update(teachers)
+      .set({ userId: newUser.id, updatedAt: new Date().toISOString() })
+      .where(eq(teachers.id, teacher.id));
+    return;
+  }
+
+  const [currentUser] = await db.select().from(users).where(eq(users.id, teacher.userId));
+  if (!currentUser) return;
+
+  const updateUser = {
+    name: name || teacher.name,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (username?.trim()) {
+    const email = `${String(username).trim().toLowerCase()}@school.local`;
+    if (email !== currentUser.email) {
+      const [dup] = await db.select().from(users).where(eq(users.email, email));
+      if (dup) throw new ApiError(400, "دا کارن نوم دمخه شتون لري");
+    }
+    updateUser.email = email;
+  }
+
+  if (password?.trim()) {
+    updateUser.password = await hashPassword(password);
+  }
+
+  await db.update(users).set(updateUser).where(eq(users.id, teacher.userId));
 };
 
 // ─── GET ALL TEACHERS ──────────────────────────────────────────────────────────
 export const getAllTeachers = asyncHandler(async (req, res) => {
-  const { id, name, education, teacherType, joiningYear, page = 1, limit = 12 } = req.query;
+  const {
+    id, name, education, teacherType, joiningYear, dateFrom, dateTo, status,
+    page = 1, limit = 12,
+  } = req.query;
 
   const offset = (page - 1) * limit;
   const conditions = [];
@@ -46,7 +116,11 @@ export const getAllTeachers = asyncHandler(async (req, res) => {
   if (name)        conditions.push(like(teachers.name, `%${name}%`));
   if (education)   conditions.push(eq(teachers.education, education));
   if (teacherType) conditions.push(like(teachers.teacherType, `%"${teacherType}"%`));
-  if (joiningYear) conditions.push(like(teachers.joiningDate, `${joiningYear}%`));
+  if (status)      conditions.push(eq(teachers.status, status));
+  else             conditions.push(eq(teachers.status, "active"));
+
+  const year = joiningYear || String(currentShamsiYear());
+  conditions.push(columnInShamsiYear(teachers.joiningDate, year));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -55,14 +129,10 @@ export const getAllTeachers = asyncHandler(async (req, res) => {
     db.select({ count: sql`count(*)`.mapWith(Number) }).from(teachers).where(whereClause),
   ]);
 
-  // Parse teacherType JSON to array for each teacher
-  const parsedTeachers = teachersList.map(teacher => ({
-    ...teacher,
-    teacherType: teacher.teacherType ? JSON.parse(teacher.teacherType) : ["School"]
-  }));
+  const teachersWithUsers = await Promise.all(teachersList.map(attachUserInfo));
 
   res.respond(200, "ښوونکي ترلاسه شول", {
-    teachers: parsedTeachers.map(withImageUrl),
+    teachers: teachersWithUsers,
     pagination: {
       total: countResult[0]?.count || 0,
       page: Number(page),
@@ -79,18 +149,84 @@ export const getTeacherById = asyncHandler(async (req, res) => {
   const [teacher] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!teacher) throw new ApiError(404, "ښوونکی ونه موندل شو");
 
-  // Parse teacherType JSON to array
-  const parsedTeacher = {
-    ...teacher,
-    teacherType: teacher.teacherType ? JSON.parse(teacher.teacherType) : ["School"]
-  };
+  const month = currentShamsiYearMonth();
+  const [salaryRow] = await db.select({
+    paidAmount: salaries.paidAmount,
+    paymentStatus: salaries.paymentStatus,
+    netSalary: salaries.netSalary,
+  })
+    .from(salaries)
+    .where(and(eq(salaries.personType, "Teacher"), eq(salaries.personId, Number(id)), eq(salaries.month, month)))
+    .limit(1);
 
-  res.respond(200, "ښوونکی ترلاسه شو", { teacher: withImageUrl(parsedTeacher) });
+  const parsed = withImageUrl(teacher);
+  let assignedClassDetails = [];
+  if (parsed.assignedClasses?.length) {
+    assignedClassDetails = await db.select({
+      id: classes.id,
+      name: classes.name,
+      section: classes.section,
+      type: classes.type,
+    })
+      .from(classes)
+      .where(inArray(classes.id, parsed.assignedClasses));
+  }
+
+  let username = null;
+  if (teacher.userId) {
+    const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, teacher.userId));
+    username = extractUsername(user?.email);
+  }
+
+  res.respond(200, "ښوونکی ترلاسه شو", {
+    teacher: {
+      ...parsed,
+      username,
+      salaryDetails: {
+        month,
+        paid: salaryRow?.paidAmount || 0,
+        netSalary: salaryRow?.netSalary || 0,
+        status: salaryRow?.paymentStatus || "Pending",
+        isPaid: salaryRow?.paymentStatus === "Paid",
+      },
+      assignedClassDetails,
+    },
+  });
 });
 
 // ─── CREATE TEACHER ────────────────────────────────────────────────────────────
+export const getClassesByTeacherTypes = asyncHandler(async (req, res) => {
+  const { types, academicYear } = req.query;
+  if (!types) throw new ApiError(400, "د ښوونکي ډول اړین دی");
+
+  let parsedTypes;
+  try {
+    parsedTypes = typeof types === "string" ? JSON.parse(types) : types;
+  } catch {
+    parsedTypes = String(types).split(",").map((t) => t.trim());
+  }
+
+  const year = academicYear || String(currentShamsiYear());
+  const classList = await db.select({
+    id: classes.id,
+    name: classes.name,
+    section: classes.section,
+    type: classes.type,
+    academicYear: classes.academicYear,
+  })
+    .from(classes)
+    .where(and(inArray(classes.type, parsedTypes), eq(classes.academicYear, year)))
+    .orderBy(classes.type, classes.name);
+
+  res.respond(200, "ټولګي ترلاسه شول", { classes: classList });
+});
+
 export const createTeacher = asyncHandler(async (req, res) => {
-  const { name, fatherName, phone, idCardNumber, education, teacherType: teacherTypeRaw, salary, skills, address, joiningDate, notes } = req.body;
+  const {
+    name, fatherName, phone, idCardNumber, education, teacherType: teacherTypeRaw,
+    salary, skills, address, joiningDate, notes, username, password,
+    assignedClasses: assignedClassesRaw,
+  } = req.body;
 
   const [existingTeacher] = await db.select().from(teachers).where(eq(teachers.phone, phone));
   if (existingTeacher) throw new ApiError(400, "دا ټېلیفون نمبر دمخه شتون لري");
@@ -115,7 +251,39 @@ export const createTeacher = asyncHandler(async (req, res) => {
     throw new ApiError(400, "د ښوونکي ډول باید ښوونځی، مرکز یا مدرسه وي");
   }
 
+  if (salary === undefined || salary === null || salary === "") {
+    throw new ApiError(400, "معاش اړین دی");
+  }
+  if (!username?.trim() || !password?.trim()) {
+    throw new ApiError(400, "د کارن نوم او پاسورډ اړین دی");
+  }
+
+  const email = `${String(username).trim().toLowerCase()}@school.local`;
+  const [existingUser] = await db.select().from(users).where(eq(users.email, email));
+  if (existingUser) throw new ApiError(400, "دا کارن نوم دمخه شتون لري");
+
+  let assignedClasses = [];
+  if (assignedClassesRaw) {
+    try {
+      assignedClasses = typeof assignedClassesRaw === "string"
+        ? JSON.parse(assignedClassesRaw)
+        : assignedClassesRaw;
+    } catch {
+      throw new ApiError(400, "ټولګي په سمه توګه نه دي لیږل شوي");
+    }
+  }
+
   const imageName = await processUploadedImage(req.file);
+  const hashed = await hashPassword(password);
+
+  const [newUser] = await db.insert(users).values({
+    name,
+    email,
+    password: hashed,
+    role: "teacher",
+    permissions: "{}",
+    isActive: true,
+  }).returning({ id: users.id });
 
   const [newTeacher] = await db.insert(teachers).values({
     name,
@@ -123,28 +291,29 @@ export const createTeacher = asyncHandler(async (req, res) => {
     phone,
     idCardNumber: idCardNumber || null,
     education,
-    teacherType: JSON.stringify(teacherType), // Store as JSON array
-    salary:      salary ? Number(salary) : null,
-    skills:      skills || null,
-    address:     address || null,
-    joiningDate: joiningDate || new Date().toISOString().split('T')[0],
-    image:       imageName,
-    notes:       notes || null,
+    teacherType: JSON.stringify(teacherType),
+    salary: Number(salary),
+    skills: skills || null,
+    address: address || null,
+    joiningDate: joiningDate || new Date().toISOString().split("T")[0],
+    image: imageName,
+    notes: notes || null,
+    status: "active",
+    userId: newUser.id,
+    assignedClasses: JSON.stringify(assignedClasses.map(Number)),
   }).returning();
 
-  // Parse teacherType back to array for response
-  const responseTeacher = {
-    ...newTeacher,
-    teacherType: JSON.parse(newTeacher.teacherType)
-  };
-
-  res.respond(201, "ښوونکی بریالیتوب سره ثبت شو", { teacher: withImageUrl(responseTeacher) });
+  res.respond(201, "ښوونکی بریالیتوب سره ثبت شو", { teacher: withImageUrl(newTeacher) });
 });
 
 // ─── UPDATE TEACHER ────────────────────────────────────────────────────────────
 export const updateTeacher = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, fatherName, phone, idCardNumber, education, teacherType: teacherTypeRaw, salary, skills, address, joiningDate, notes, removeImage } = req.body;
+  const {
+    name, fatherName, phone, idCardNumber, education, teacherType: teacherTypeRaw,
+    salary, skills, address, joiningDate, notes, removeImage, assignedClasses: assignedClassesRaw,
+    username, password,
+  } = req.body;
 
   const [existingTeacher] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!existingTeacher) throw new ApiError(404, "ښوونکی ونه موندل شو");
@@ -195,7 +364,21 @@ export const updateTeacher = asyncHandler(async (req, res) => {
   if (idCardNumber !== undefined) updateData.idCardNumber = idCardNumber || null;
   if (education !== undefined)    updateData.education = education;
   if (teacherType !== undefined)  updateData.teacherType = JSON.stringify(teacherType); // Store as JSON array
-  if (salary !== undefined)       updateData.salary = salary ? Number(salary) : null;
+  if (salary !== undefined) {
+    if (salary === "" || salary === null) throw new ApiError(400, "معاش اړین دی");
+    updateData.salary = Number(salary);
+  }
+  if (assignedClassesRaw !== undefined) {
+    let assignedClasses = [];
+    try {
+      assignedClasses = typeof assignedClassesRaw === "string"
+        ? JSON.parse(assignedClassesRaw)
+        : assignedClassesRaw;
+    } catch {
+      throw new ApiError(400, "ټولګي په سمه توګه نه دي لیږل شوي");
+    }
+    updateData.assignedClasses = JSON.stringify(assignedClasses.map(Number));
+  }
   if (skills !== undefined)       updateData.skills = skills || null;
   if (address !== undefined)      updateData.address = address || null;
   if (joiningDate !== undefined)  updateData.joiningDate = joiningDate || null;
@@ -203,13 +386,18 @@ export const updateTeacher = asyncHandler(async (req, res) => {
 
   const [updatedTeacher] = await db.update(teachers).set(updateData).where(eq(teachers.id, id)).returning();
 
-  // Parse teacherType back to array for response
-  const responseTeacher = {
-    ...updatedTeacher,
-    teacherType: updatedTeacher.teacherType ? JSON.parse(updatedTeacher.teacherType) : ["School"]
-  };
+  if (username !== undefined || password !== undefined) {
+    await syncTeacherUserAccount({
+      teacher: existingTeacher,
+      name: name ?? existingTeacher.name,
+      username,
+      password,
+    });
+  }
 
-  res.respond(200, "ښوونکی بریالیتوب سره تازه شو", { teacher: withImageUrl(responseTeacher) });
+  const [refreshed] = await db.select().from(teachers).where(eq(teachers.id, id));
+  const teacherWithUser = await attachUserInfo(refreshed);
+  res.respond(200, "ښوونکی بریالیتوب سره تازه شو", { teacher: teacherWithUser });
 });
 
 // ─── DELETE TEACHER ────────────────────────────────────────────────────────────
@@ -221,14 +409,45 @@ export const deleteTeacher = asyncHandler(async (req, res) => {
 
   if (existingTeacher.image) await deleteImage(path.join(UPLOAD_DIR, existingTeacher.image));
 
-  await db.delete(teachers).where(eq(teachers.id, id));
+  if (existingTeacher.userId) {
+    await db.update(users).set({ isActive: false, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, existingTeacher.userId));
+  }
 
+  await db.delete(teachers).where(eq(teachers.id, id));
   res.respond(200, "ښوونکی بریالیتوب سره ړنګ شو");
+});
+
+export const toggleTeacherStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["active", "inactive"].includes(status)) {
+    throw new ApiError(400, "حالت باید active یا inactive وي");
+  }
+
+  const [existing] = await db.select().from(teachers).where(eq(teachers.id, id));
+  if (!existing) throw new ApiError(404, "ښوونکی ونه موندل شو");
+
+  const [updated] = await db.update(teachers)
+    .set({ status, updatedAt: new Date().toISOString() })
+    .where(eq(teachers.id, id))
+    .returning();
+
+  if (existing.userId) {
+    await db.update(users)
+      .set({ isActive: status === "active", updatedAt: new Date().toISOString() })
+      .where(eq(users.id, existing.userId));
+  }
+
+  res.respond(200, status === "active" ? "ښوونکی فعال شو" : "ښوونکی غیر فعال شو", {
+    teacher: withImageUrl(updated),
+  });
 });
 
 // ─── GET ALL APPLICANTS ────────────────────────────────────────────────────────
 export const getAllApplicants = asyncHandler(async (req, res) => {
-  const { name, phone, skills, appliedYear, dateFrom, dateTo, page = 1, limit = 12 } = req.query;
+  const { name, phone, skills, appliedYear, page = 1, limit = 12 } = req.query;
 
   const offset = (page - 1) * limit;
   const conditions = [];
@@ -236,9 +455,8 @@ export const getAllApplicants = asyncHandler(async (req, res) => {
   if (name)        conditions.push(like(teacherApplicants.name, `%${name}%`));
   if (phone)       conditions.push(like(teacherApplicants.phone, `%${phone}%`));
   if (skills)      conditions.push(like(teacherApplicants.skills, `%${skills}%`));
-  if (appliedYear) conditions.push(like(teacherApplicants.appliedAt, `${appliedYear}%`));
-  if (dateFrom)    conditions.push(gte(teacherApplicants.appliedAt, dateFrom));
-  if (dateTo)      conditions.push(lte(teacherApplicants.appliedAt, dateTo));
+  const year = appliedYear || String(currentShamsiYear());
+  conditions.push(columnInShamsiYear(teacherApplicants.appliedAt, year));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -374,4 +592,272 @@ export const convertApplicantToTeacher = asyncHandler(async (req, res) => {
   };
 
   res.respond(201, "غوښتونکی بریالیتوب سره ښوونکي ته بدل شو", { teacher: withImageUrl(responseTeacher) });
+});
+
+// ─── RESET TEACHER PASSWORD (admin) ───────────────────────────────────────────
+export const resetTeacherPassword = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body;
+
+  const [teacher] = await db.select().from(teachers).where(eq(teachers.id, Number(id)));
+  if (!teacher) throw new ApiError(404, "ښوونکی ونه موندل شو");
+  if (!teacher.userId) throw new ApiError(400, "دا ښوونکی د ننوتلو حساب نلري");
+
+  const hashed = await hashPassword(newPassword);
+  await db.update(users)
+    .set({ password: hashed, updatedAt: new Date().toISOString() })
+    .where(eq(users.id, teacher.userId));
+
+  res.respond(200, "پاسورډ بریالۍ بدل شو");
+});
+
+const getTeacherByUserId = async (userId) => {
+  const [teacher] = await db.select().from(teachers).where(eq(teachers.userId, userId));
+  return teacher ? parseTeacherRecord(teacher) : null;
+};
+
+const getClassAttendanceMeta = async (classId, attendanceDate) => {
+  const [row] = await db
+    .select({
+      count: sql`count(*)`.mapWith(Number),
+      takenBy: sql`min(${attendance.takenBy})`.mapWith(Number),
+    })
+    .from(attendance)
+    .where(
+      and(
+        eq(attendance.attendanceType, "Student"),
+        eq(attendance.classId, classId),
+        eq(attendance.attendanceDate, attendanceDate)
+      )
+    );
+
+  return {
+    hasAttendance: (row?.count || 0) > 0,
+    takenBy: row?.takenBy || null,
+    recordCount: row?.count || 0,
+  };
+};
+
+// ─── TEACHER DASHBOARD ─────────────────────────────────────────────────────────
+export const getMyTeacherDashboard = asyncHandler(async (req, res) => {
+  if (req.user.role !== "teacher") {
+    throw new ApiError(403, "تاسو د دې برخې لپاره اجازه نلرئ");
+  }
+
+  const teacher = await getTeacherByUserId(req.user.id);
+  if (!teacher) throw new ApiError(404, "د ښوونکي پروفایل ونه موندل شو");
+
+  const [user] = await db.select({
+    email: users.email,
+    name: users.name,
+  }).from(users).where(eq(users.id, req.user.id));
+
+  const attendanceDate = req.query.attendanceDate || new Date().toISOString().split("T")[0];
+  let assignedClassDetails = [];
+
+  if (teacher.assignedClasses?.length) {
+    assignedClassDetails = await db.select({
+      id: classes.id,
+      name: classes.name,
+      section: classes.section,
+      type: classes.type,
+      academicYear: classes.academicYear,
+    })
+      .from(classes)
+      .where(inArray(classes.id, teacher.assignedClasses));
+
+    assignedClassDetails = await Promise.all(
+      assignedClassDetails.map(async (cls) => {
+        const meta = await getClassAttendanceMeta(cls.id, attendanceDate);
+        const takenByMe = meta.hasAttendance && meta.takenBy === req.user.id;
+        const takenByOther = meta.hasAttendance && meta.takenBy !== null && meta.takenBy !== req.user.id;
+        return {
+          ...cls,
+          attendanceStatus: !meta.hasAttendance
+            ? "pending"
+            : takenByMe
+              ? "completed"
+              : takenByOther
+                ? "taken_by_other"
+                : "pending",
+          canTakeAttendance: !takenByOther,
+          isReadOnly: takenByOther,
+        };
+      })
+    );
+  }
+
+  res.respond(200, "ډیشبورډ ترلاسه شو", {
+    teacher: {
+      ...teacher,
+      username: user?.email?.endsWith("@school.local")
+        ? user.email.replace("@school.local", "")
+        : user?.email,
+      email: user?.email,
+    },
+    assignedClassDetails,
+    attendanceDate,
+  });
+});
+
+// ─── TEACHER: GET CLASS STUDENTS FOR ATTENDANCE ────────────────────────────────
+export const getMyClassAttendance = asyncHandler(async (req, res) => {
+  if (req.user.role !== "teacher") {
+    throw new ApiError(403, "تاسو د دې برخې لپاره اجازه نلرئ");
+  }
+
+  const teacher = await getTeacherByUserId(req.user.id);
+  if (!teacher) throw new ApiError(404, "د ښوونکي پروفایل ونه موندل شو");
+
+  const classId = Number(req.params.classId);
+  const attendanceDate = req.query.attendanceDate || new Date().toISOString().split("T")[0];
+
+  if (!teacher.assignedClasses?.includes(classId)) {
+    throw new ApiError(403, "تاسو د دې ټولګي لپاره اجازه نلرئ");
+  }
+
+  const [classRow] = await db.select().from(classes).where(eq(classes.id, classId));
+  if (!classRow) throw new ApiError(404, "ټولګی ونه موندل شو");
+
+  const meta = await getClassAttendanceMeta(classId, attendanceDate);
+  const takenByMe = meta.hasAttendance && meta.takenBy === req.user.id;
+  const takenByOther = meta.hasAttendance && meta.takenBy !== null && meta.takenBy !== req.user.id;
+
+  const people = await db
+    .select({
+      id: students.id,
+      fullName: students.fullName,
+      fatherName: students.fatherName,
+      rollNumber: students.rollNumber,
+      classId: students.classId,
+    })
+    .from(students)
+    .where(and(eq(students.classId, classId), eq(students.status, "active")))
+    .orderBy(students.rollNumber, students.fullName);
+
+  const existingAttendance = await db
+    .select({
+      personId: attendance.personId,
+      status: attendance.status,
+    })
+    .from(attendance)
+    .where(
+      and(
+        eq(attendance.attendanceType, "Student"),
+        eq(attendance.classId, classId),
+        eq(attendance.attendanceDate, attendanceDate)
+      )
+    );
+
+  const attendanceMap = {};
+  existingAttendance.forEach((att) => {
+    attendanceMap[att.personId] = att.status;
+  });
+
+  const peopleWithAttendance = people.map((person) => ({
+    ...person,
+    attendance: {
+      status: attendanceMap[person.id] ?? null,
+    },
+  }));
+
+  res.respond(200, "د ټولګي زده کوونکي ترلاسه شول", {
+    class: classRow,
+    people: peopleWithAttendance,
+    attendanceDate,
+    canTakeAttendance: !takenByOther,
+    isReadOnly: takenByOther,
+    attendanceStatus: !meta.hasAttendance
+      ? "pending"
+      : takenByMe
+        ? "completed"
+        : takenByOther
+          ? "taken_by_other"
+          : "pending",
+  });
+});
+
+// ─── TEACHER: SUBMIT CLASS ATTENDANCE (once per class per day) ─────────────────
+export const submitTeacherClassAttendance = asyncHandler(async (req, res) => {
+  if (req.user.role !== "teacher") {
+    throw new ApiError(403, "تاسو د دې برخې لپاره اجازه نلرئ");
+  }
+
+  const teacher = await getTeacherByUserId(req.user.id);
+  if (!teacher) throw new ApiError(404, "د ښوونکي پروفایل ونه موندل شو");
+
+  const { classId, attendanceDate, attendanceData } = req.body;
+  const parsedClassId = Number(classId);
+
+  if (!teacher.assignedClasses?.includes(parsedClassId)) {
+    throw new ApiError(403, "تاسو د دې ټولګي لپاره اجازه نلرئ");
+  }
+
+  const [classRow] = await db.select().from(classes).where(eq(classes.id, parsedClassId));
+  if (!classRow) throw new ApiError(404, "ټولګی ونه موندل شو");
+
+  const meta = await getClassAttendanceMeta(parsedClassId, attendanceDate);
+  const takenByOther = meta.hasAttendance && meta.takenBy !== null && meta.takenBy !== req.user.id;
+  if (takenByOther) {
+    throw new ApiError(400, "د دې ټولګي حاضري نن د بل ښوونکي لخوا ثبت شوې ده");
+  }
+
+  const results = { created: 0, updated: 0, errors: [] };
+
+  for (const item of attendanceData) {
+    try {
+      const personId = Number(item.personId);
+      const [student] = await db.select({ id: students.id })
+        .from(students)
+        .where(and(eq(students.id, personId), eq(students.classId, parsedClassId)));
+
+      if (!student) {
+        results.errors.push({ personId, error: "زده کوونکی ونه موندل شو" });
+        continue;
+      }
+
+      const [existingAttendance] = await db
+        .select()
+        .from(attendance)
+        .where(
+          and(
+            eq(attendance.attendanceType, "Student"),
+            eq(attendance.personId, personId),
+            eq(attendance.attendanceDate, attendanceDate)
+          )
+        );
+
+      if (existingAttendance) {
+        await db
+          .update(attendance)
+          .set({
+            status: item.status || null,
+            notes: item.notes || null,
+            takenBy: req.user.id,
+            updatedBy: req.user.id,
+            updatedAt: sql`(datetime('now'))`,
+          })
+          .where(eq(attendance.id, existingAttendance.id));
+        results.updated++;
+      } else {
+        await db.insert(attendance).values({
+          attendanceType: "Student",
+          personId,
+          institutionType: classRow.type,
+          classId: parsedClassId,
+          attendanceDate,
+          status: item.status || null,
+          attendanceMethod: "Manual",
+          notes: item.notes || null,
+          takenBy: req.user.id,
+        });
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push({ personId: item.personId, error: error.message });
+    }
+  }
+
+  const total = results.created + results.updated;
+  res.respond(201, `حاضرۍ بریالۍ ثبت شوه - ${total} زده کوونکي`, { results });
 });

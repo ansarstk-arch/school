@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PageHeader } from "@/components/erp/PageHeader";
 import { QRAttendanceScanner } from "@/components/erp/QRAttendanceScanner";
 import { 
   Users, Calendar, QrCode, Check, X, Clock, 
-  CheckCircle2, XCircle, Timer, AlertCircle, Search, Download, FileSpreadsheet, FileText
+  CheckCircle2, XCircle, Timer, AlertCircle, Search, Download, FileSpreadsheet
 } from "lucide-react";
 import { currentShamsiYear, todayAfghan } from "@/lib/afghan-date";
 import * as attendanceApi from "@/data/attendanceApi";
@@ -39,25 +39,16 @@ export default function StudentAttendance() {
   const [attendanceMethod, setAttendanceMethod] = useState("Manual");
   const [institutionType, setInstitutionType] = useState("School");
   const [classId, setClassId] = useState("");
-  // Get today's date in YYYY-MM-DD format
-  const getTodayDate = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-  
-  const [attendanceDate, setAttendanceDate] = useState(getTodayDate());
+  const [serverToday, setServerToday] = useState("");
+  const [attendanceDate, setAttendanceDate] = useState("");
   
   // Download states
   const [downloadInstitutionType, setDownloadInstitutionType] = useState("School");
   const [downloadClassId, setDownloadClassId] = useState("");
   const [reportPeriod, setReportPeriod] = useState("daily");
-  const [reportStartDate, setReportStartDate] = useState(getTodayDate());
-  const [reportEndDate, setReportEndDate] = useState(getTodayDate());
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const [downloadingExcel, setDownloadingExcel] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
   
   // Data states
   const [classes, setClasses] = useState([]);
@@ -77,6 +68,41 @@ export default function StudentAttendance() {
   );
   
   const itemsPerPage = 30;
+
+  const loadServerToday = async () => {
+    try {
+      const response = await attendanceApi.getServerToday();
+      const today = response.data?.today;
+      if (today) {
+        setServerToday(today);
+        setAttendanceDate((prev) => (!prev || prev === serverToday ? today : prev));
+        setReportStartDate((prev) => (!prev || prev === serverToday ? today : prev));
+        setReportEndDate((prev) => (!prev || prev === serverToday ? today : prev));
+      }
+    } catch {
+      toast.error("د سرور نېټه ترلاسه نه شوه");
+    }
+  };
+
+  const prevServerTodayRef = useRef("");
+
+  useEffect(() => {
+    loadServerToday();
+    const interval = setInterval(loadServerToday, 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!serverToday) return;
+    if (prevServerTodayRef.current && prevServerTodayRef.current !== serverToday) {
+      setShowTable(false);
+      setStudents([]);
+      setAttendanceData({});
+      setAttendanceDate(serverToday);
+    }
+    prevServerTodayRef.current = serverToday;
+  }, [serverToday]);
 
   // Monitor online status
   useEffect(() => {
@@ -260,34 +286,31 @@ export default function StudentAttendance() {
 
   // Handle report period change
   useEffect(() => {
-    const today = getTodayDate();
+    if (!serverToday) return;
+    const today = serverToday;
     if (reportPeriod === "daily") {
       setReportStartDate(today);
       setReportEndDate(today);
     } else if (reportPeriod === "monthly") {
-      const date = new Date();
-      const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-      setReportStartDate(firstDay.toISOString().split('T')[0]);
-      setReportEndDate(lastDay.toISOString().split('T')[0]);
+      const [y, m] = today.split("-").map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      setReportStartDate(`${y}-${String(m).padStart(2, "0")}-01`);
+      setReportEndDate(`${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`);
     } else if (reportPeriod === "yearly") {
-      const date = new Date();
-      const firstDay = new Date(date.getFullYear(), 0, 1);
-      const lastDay = new Date(date.getFullYear(), 11, 31);
-      setReportStartDate(firstDay.toISOString().split('T')[0]);
-      setReportEndDate(lastDay.toISOString().split('T')[0]);
+      const y = today.split("-")[0];
+      setReportStartDate(`${y}-01-01`);
+      setReportEndDate(`${y}-12-31`);
     }
-  }, [reportPeriod]);
+  }, [reportPeriod, serverToday]);
 
-  // Download handler
-  const handleDownload = async (format) => {
+  // Download handler - Excel only
+  const handleDownloadExcel = async () => {
     if (!downloadClassId) {
       toast.error("مهرباني وکړئ ټولګی غوره کړئ");
       return;
     }
 
-    const setLoading = format === 'excel' ? setDownloadingExcel : setDownloadingPdf;
-    setLoading(true);
+    setDownloadingExcel(true);
     try {
       const params = {
         attendanceType: "Student",
@@ -295,7 +318,7 @@ export default function StudentAttendance() {
         classId: downloadClassId,
         startDate: reportStartDate,
         endDate: reportEndDate,
-        format: format,
+        format: 'excel',
       };
 
       const queryString = new URLSearchParams(params).toString();
@@ -314,18 +337,18 @@ export default function StudentAttendance() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `attendance_${reportStartDate}_${reportEndDate}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      link.download = `attendance_${reportStartDate}_${reportEndDate}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       
-      toast.success(`د ${format === 'excel' ? 'Excel' : 'PDF'} فایل ډاونلوډ شو`);
+      toast.success("د Excel فایل بریالۍ ډاونلوډ شو");
     } catch (error) {
       console.error("Download error:", error);
       toast.error("د ډاونلوډ کې ستونزه");
     } finally {
-      setLoading(false);
+      setDownloadingExcel(false);
     }
   };
 
@@ -410,7 +433,7 @@ export default function StudentAttendance() {
             <input
               type="date"
               value={attendanceDate}
-              max={getTodayDate()}
+              max={serverToday || undefined}
               onChange={(e) => {
                 setAttendanceDate(e.target.value);
                 setShowTable(false);
@@ -775,12 +798,12 @@ export default function StudentAttendance() {
           </div>
         </div>
 
-        {/* Download Buttons */}
-        <div className="flex justify-center gap-4 pt-4">
+        {/* Download Button - Excel Only */}
+        <div className="flex justify-center pt-4">
           <button
-            onClick={() => handleDownload('excel')}
+            onClick={handleDownloadExcel}
             disabled={downloadingExcel || !downloadClassId}
-            className="px-6 py-3 bg-success text-success-foreground rounded-lg font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-8 py-3 bg-success text-success-foreground rounded-lg font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
           >
             {downloadingExcel ? (
               <>
@@ -790,25 +813,7 @@ export default function StudentAttendance() {
             ) : (
               <>
                 <FileSpreadsheet className="size-5" />
-                Excel ډاونلوډ
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={() => handleDownload('pdf')}
-            disabled={downloadingPdf || !downloadClassId}
-            className="px-6 py-3 bg-destructive text-destructive-foreground rounded-lg font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {downloadingPdf ? (
-              <>
-                <div className="w-5 h-5 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin"></div>
-                ډاونلوډ کول...
-              </>
-            ) : (
-              <>
-                <FileText className="size-5" />
-                PDF ډاونلوډ
+                Excel راپور ډاونلوډ
               </>
             )}
           </button>

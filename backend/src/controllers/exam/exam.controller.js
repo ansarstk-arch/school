@@ -139,8 +139,6 @@ export const getAllExams = asyncHandler(async (req, res) => {
     examTitle, 
     institutionType, 
     status, 
-    startDate, 
-    endDate, 
     academicYear,
     page = 1, 
     limit = 12,
@@ -157,11 +155,8 @@ export const getAllExams = asyncHandler(async (req, res) => {
   if (examTitle) conditions.push(like(exams.examTitle, `%${examTitle}%`));
   if (institutionType) conditions.push(eq(exams.institutionType, institutionType));
   if (status) conditions.push(eq(exams.status, status));
-  if (academicYear) conditions.push(eq(exams.academicYear, academicYear));
-  
-  // Date range filtering
-  if (startDate) conditions.push(sql`${exams.startDate} >= ${startDate}`);
-  if (endDate) conditions.push(sql`${exams.endDate} <= ${endDate}`);
+  const year = academicYear || String(currentShamsiYear());
+  conditions.push(eq(exams.academicYear, year));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

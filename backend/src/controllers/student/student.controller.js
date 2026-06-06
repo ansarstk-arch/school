@@ -1,9 +1,18 @@
-import { eq, like, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, like, and, desc, sql, inArray, count, gte, lte } from "drizzle-orm";
 import { asyncHandler } from "../../utils/AsyncHandler.util.js";
 import db from "../../configs/db/db.config.js";
-import { students, studentEnrollments, classes } from "../../db/schema.js";
+import { students, studentEnrollments, classes, attendance, feePayments } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
 import { compressImage, deleteImage, getImageUrl } from "../../utils/imageProcessor.util.js";
+import { getCurrentAfghanDate } from "../../utils/dateHandler.util.js";
+import { assertInstitutionAccess } from "../../utils/permissions.util.js";
+import {
+  currentShamsiYear,
+  currentShamsiYearMonth,
+  getCurrentShamsiMonthRange,
+  getWeekDateRange,
+  getCurrentGregorianDateAfghanTZ,
+} from "../../utils/shamsiDate.util.js";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -48,12 +57,28 @@ const getFullImagePath = (relativePath) => {
   return path.join(__dirname, '../../../uploads', relativePath);
 };
 
+const ensureAbsentCallsTable = async () => {
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS absent_parent_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id INTEGER NOT NULL,
+      attendance_date TEXT NOT NULL,
+      called INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(student_id, attendance_date)
+    )
+  `);
+};
+
 // ─── GET CLASSES BY TYPE AND YEAR (for filtering) ──────────────────────────────
 export const getClassesByTypeAndYear = asyncHandler(async (req, res) => {
   const { type, academicYear } = req.query;
 
   if (!type) throw new ApiError(400, "د ټولګي ډول اړین دی");
   if (!academicYear) throw new ApiError(400, "تعلیمي کال اړین دی");
+
+  assertInstitutionAccess(req.user?.permissions, req.user?.role, type);
 
   const classesList = await db
     .select({
@@ -71,8 +96,18 @@ export const getClassesByTypeAndYear = asyncHandler(async (req, res) => {
 });
 
 // ─── GET ALL STUDENTS ──────────────────────────────────────────────────────────
+const buildAttendanceStats = (records) => ({
+  totalDays: records.length,
+  present: records.filter((r) => r.status === "Present").length,
+  absent: records.filter((r) => r.status === "Absent").length,
+  leave: records.filter((r) => r.status === "Leave").length,
+});
+
 export const getAllStudents = asyncHandler(async (req, res) => {
-  const { id, fullName, fatherName, classId, gender, academicYear, enrollmentType, page = 1, limit = 12 } = req.query;
+  const {
+    id, fullName, fatherName, classId, gender, academicYear, enrollmentType,
+    status, page = 1, limit = 12,
+  } = req.query;
 
   const offset = (page - 1) * limit;
   const conditions = [];
@@ -82,7 +117,11 @@ export const getAllStudents = asyncHandler(async (req, res) => {
   if (fatherName)   conditions.push(like(students.fatherName, `%${fatherName}%`));
   if (classId)      conditions.push(eq(students.classId, Number(classId)));
   if (gender)       conditions.push(eq(students.gender, gender));
-  if (academicYear) conditions.push(eq(classes.academicYear, academicYear));
+  if (status)       conditions.push(eq(students.status, status));
+  else              conditions.push(eq(students.status, "active"));
+
+  const year = academicYear || String(currentShamsiYear());
+  conditions.push(eq(students.academicYear, year));
 
   // Filter by enrollment type
   if (enrollmentType) {
@@ -98,10 +137,13 @@ export const getAllStudents = asyncHandler(async (req, res) => {
       fullName: students.fullName,
       fatherName: students.fatherName,
       grandFatherName: students.grandFatherName,
+      maternalUncleName: students.maternalUncleName,
       gender: students.gender,
       dob: students.dob,
       phone: students.phone,
       emergencyContact: students.emergencyContact,
+      parentNumber1: students.phone,
+      parentNumber2: students.emergencyContact,
       address: students.address,
       idCardNumber: students.idCardNumber,
       classId: students.classId,
@@ -112,6 +154,7 @@ export const getAllStudents = asyncHandler(async (req, res) => {
       academicYear: students.academicYear,
       registrationFee: students.registrationFee,
       image: students.image,
+      status: students.status,
       createdAt: students.createdAt,
       updatedAt: students.updatedAt,
     })
@@ -186,9 +229,70 @@ export const getStudentById = asyncHandler(async (req, res) => {
   // Fetch enrollments
   const enrollments = await db.select().from(studentEnrollments).where(eq(studentEnrollments.studentId, id));
 
+  // Calculate age from DOB
+  let age = null;
+  if (student.dob) {
+    const dobDate = new Date(student.dob);
+    const today = new Date();
+    age = today.getFullYear() - dobDate.getFullYear();
+    const monthDiff = today.getMonth() - dobDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+      age--;
+    }
+  }
+
+  const today = getCurrentGregorianDateAfghanTZ();
+  const { monthStart, monthEnd } = getCurrentShamsiMonthRange();
+  const { weekStart, weekEnd } = getWeekDateRange();
+  const shamsiMonth = currentShamsiYearMonth();
+
+  const [dailyRecords, weeklyRecords, monthlyRecords] = await Promise.all([
+    db.select({ status: attendance.status }).from(attendance).where(
+      and(eq(attendance.attendanceType, "Student"), eq(attendance.personId, Number(id)), eq(attendance.attendanceDate, today))
+    ),
+    db.select({ status: attendance.status }).from(attendance).where(
+      and(eq(attendance.attendanceType, "Student"), eq(attendance.personId, Number(id)), gte(attendance.attendanceDate, weekStart), lte(attendance.attendanceDate, weekEnd))
+    ),
+    db.select({ status: attendance.status }).from(attendance).where(
+      and(eq(attendance.attendanceType, "Student"), eq(attendance.personId, Number(id)), gte(attendance.attendanceDate, monthStart), lte(attendance.attendanceDate, monthEnd))
+    ),
+  ]);
+
+  const attendanceStats = {
+    daily: buildAttendanceStats(dailyRecords),
+    weekly: buildAttendanceStats(weeklyRecords),
+    monthly: buildAttendanceStats(monthlyRecords),
+  };
+
+  const [currentMonthFee] = await db
+    .select({
+      amount: feePayments.amount,
+      paid: feePayments.paid,
+      status: feePayments.status,
+    })
+    .from(feePayments)
+    .where(
+      and(
+        eq(feePayments.studentId, Number(id)),
+        eq(feePayments.month, shamsiMonth)
+      )
+    );
+
+  const feeDetails = {
+    thisMonthAmount: currentMonthFee?.amount || 0,
+    thisMonthPaid: currentMonthFee?.paid || 0,
+    thisMonthStatus: currentMonthFee?.status || "Unpaid",
+    thisMonthRemaining: (currentMonthFee?.amount || 0) - (currentMonthFee?.paid || 0),
+  };
+
   res.respond(200, "زده کوونکی ترلاسه شو", { 
     student: {
       ...withImageUrl(student),
+      parentNumber1: student.phone,
+      parentNumber2: student.emergencyContact,
+      age,
+      attendanceStats,
+      feeDetails,
       enrollments: enrollments.map(e => ({
         type: e.enrollmentType,
         fee: e.monthlyFee,
@@ -200,8 +304,8 @@ export const getStudentById = asyncHandler(async (req, res) => {
 // ─── CREATE STUDENT ────────────────────────────────────────────────────────────
 export const createStudent = asyncHandler(async (req, res) => {
   const { 
-    fullName, fatherName, grandFatherName, phone, idCardNumber, 
-    gender, dob, address, emergencyContact, academicYear, 
+    fullName, fatherName, grandFatherName, maternalUncleName, parentNumber1, idCardNumber, 
+    gender, dob, address, parentNumber2, academicYear, 
     enrollments, classes: classIds, fees, registrationFee, rollNumber, section 
   } = req.body;
 
@@ -232,12 +336,13 @@ export const createStudent = asyncHandler(async (req, res) => {
     fullName,
     fatherName,
     grandFatherName: grandFatherName || null,
-    phone: phone || null,
+    maternalUncleName: maternalUncleName || null,
+    phone: parentNumber1 || null,
     idCardNumber: idCardNumber || null,
     gender,
     dob: dob || null,
     address: address || null,
-    emergencyContact: emergencyContact || null,
+    emergencyContact: parentNumber2 || null,
     academicYear,
     classId: primaryClassId ? Number(primaryClassId) : null,
     section: section || null,
@@ -273,8 +378,8 @@ export const createStudent = asyncHandler(async (req, res) => {
 export const updateStudent = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { 
-    fullName, fatherName, grandFatherName, phone, idCardNumber, 
-    gender, dob, address, emergencyContact, academicYear, 
+    fullName, fatherName, grandFatherName, maternalUncleName, parentNumber1, idCardNumber, 
+    gender, dob, address, parentNumber2, academicYear, 
     enrollments, classes: classIds, fees, registrationFee, rollNumber, section, removeImage 
   } = req.body;
 
@@ -319,12 +424,13 @@ export const updateStudent = asyncHandler(async (req, res) => {
   if (fullName !== undefined)         updateData.fullName = fullName;
   if (fatherName !== undefined)       updateData.fatherName = fatherName;
   if (grandFatherName !== undefined)  updateData.grandFatherName = grandFatherName || null;
-  if (phone !== undefined)            updateData.phone = phone || null;
+  if (maternalUncleName !== undefined) updateData.maternalUncleName = maternalUncleName || null;
+  if (parentNumber1 !== undefined)    updateData.phone = parentNumber1 || null;
   if (idCardNumber !== undefined)     updateData.idCardNumber = idCardNumber || null;
   if (gender !== undefined)           updateData.gender = gender;
   if (dob !== undefined)              updateData.dob = dob || null;
   if (address !== undefined)          updateData.address = address || null;
-  if (emergencyContact !== undefined) updateData.emergencyContact = emergencyContact || null;
+  if (parentNumber2 !== undefined)    updateData.emergencyContact = parentNumber2 || null;
   if (academicYear !== undefined)     updateData.academicYear = academicYear;
   if (rollNumber !== undefined)       updateData.rollNumber = rollNumber || null;
   if (section !== undefined)          updateData.section = section || null;
@@ -381,11 +487,170 @@ export const deleteStudent = asyncHandler(async (req, res) => {
     if (imagePath) await deleteImage(imagePath);
   }
 
-  // Delete enrollments (cascade will handle this, but explicit is better)
-  await db.delete(studentEnrollments).where(eq(studentEnrollments.studentId, id));
+  await db.update(feePayments)
+    .set({ studentId: null, updatedAt: new Date().toISOString() })
+    .where(eq(feePayments.studentId, Number(id)));
 
-  // Delete student
+  await db.delete(studentEnrollments).where(eq(studentEnrollments.studentId, id));
   await db.delete(students).where(eq(students.id, id));
 
   res.respond(200, "زده کوونکی بریالیتوب سره ړنګ شو");
+});
+
+export const toggleStudentStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["active", "inactive"].includes(status)) {
+    throw new ApiError(400, "حالت باید active یا inactive وي");
+  }
+
+  const [existing] = await db.select().from(students).where(eq(students.id, id));
+  if (!existing) throw new ApiError(404, "زده کوونکی ونه موندل شو");
+
+  const [updated] = await db.update(students)
+    .set({ status, updatedAt: new Date().toISOString() })
+    .where(eq(students.id, id))
+    .returning();
+
+  res.respond(200, status === "active" ? "زده کوونکی فعال شو" : "زده کوونکی غیر فعال شو", {
+    student: withImageUrl(updated),
+  });
+});
+
+export const getParentNumbers = asyncHandler(async (req, res) => {
+  await ensureAbsentCallsTable();
+  const {
+    id,
+    fullName,
+    fatherName,
+    classId,
+    enrollmentType,
+    academicYear,
+    absentOnly,
+    called,
+    page = 1,
+    limit = 20,
+  } = req.query;
+
+  const targetDate = getCurrentAfghanDate();
+  const year = academicYear || String(currentShamsiYear());
+  const filters = [eq(students.academicYear, year), eq(students.status, "active")];
+
+  if (id) filters.push(eq(students.id, Number(id)));
+  if (fullName) filters.push(like(students.fullName, `%${fullName}%`));
+  if (fatherName) filters.push(like(students.fatherName, `%${fatherName}%`));
+  if (classId) filters.push(eq(students.classId, Number(classId)));
+  if (enrollmentType) filters.push(eq(classes.type, enrollmentType));
+
+  const whereClause = and(...filters);
+  const offset = (Number(page) - 1) * Number(limit);
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        fatherName: students.fatherName,
+        className: classes.name,
+        classSection: classes.section,
+        enrollmentType: classes.type,
+        parentNumber1: students.phone,
+        parentNumber2: students.emergencyContact,
+        attendanceStatus: attendance.status,
+        callStatus: sql`COALESCE(apc.called, 0)`,
+      })
+      .from(students)
+      .leftJoin(classes, eq(students.classId, classes.id))
+      .leftJoin(
+        attendance,
+        and(
+          eq(attendance.attendanceType, "Student"),
+          eq(attendance.personId, students.id),
+          eq(attendance.attendanceDate, targetDate)
+        )
+      )
+      .leftJoin(sql`absent_parent_calls apc`, sql`apc.student_id = ${students.id} AND apc.attendance_date = ${targetDate}`)
+      .where(whereClause)
+      .orderBy(students.fullName)
+      .limit(Number(limit))
+      .offset(offset),
+    db.select({ count: count() }).from(students)
+      .leftJoin(classes, eq(students.classId, classes.id))
+      .where(whereClause)
+  ]);
+
+  let data = rows;
+  if (absentOnly === "absent") data = data.filter((r) => r.attendanceStatus === "Absent");
+  if (absentOnly === "present") data = data.filter((r) => r.attendanceStatus === "Present");
+  if (called === "true") data = data.filter((r) => Number(r.callStatus) === 1);
+  if (called === "false") data = data.filter((r) => Number(r.callStatus) === 0);
+
+  const groupByParentPhone = (items) => {
+    const groups = new Map();
+    for (const row of items) {
+      const phone = row.parentNumber1?.trim();
+      const key = phone || `solo-${row.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          ...row,
+          studentIds: [row.id],
+          ids: [row.id],
+        });
+      } else {
+        const g = groups.get(key);
+        g.studentIds.push(row.id);
+        g.ids.push(row.id);
+        g.fullName = `${g.fullName}، ${row.fullName}`;
+        if (Number(row.callStatus) === 0) g.callStatus = 0;
+        if (row.attendanceStatus === "Absent") g.attendanceStatus = "Absent";
+      }
+    }
+    return Array.from(groups.values());
+  };
+
+  res.respond(200, "د والدینو نمبرونه ترلاسه شول", {
+    date: targetDate,
+    parentNumbers: groupByParentPhone(data),
+    pagination: {
+      total: Number(totalRows[0]?.count || 0),
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(Number(totalRows[0]?.count || 0) / Number(limit)),
+    },
+  });
+});
+
+export const toggleParentCallStatus = asyncHandler(async (req, res) => {
+  await ensureAbsentCallsTable();
+  const { studentId, studentIds, attendanceDate, called } = req.body;
+  if (!attendanceDate) throw new ApiError(400, "اړین معلومات نشته");
+
+  let ids = Array.isArray(studentIds) ? studentIds.map(Number) : [];
+  if (ids.length === 0 && studentId) {
+    const [student] = await db.select({ phone: students.phone })
+      .from(students).where(eq(students.id, Number(studentId)));
+    if (student?.phone) {
+      const siblings = await db.select({ id: students.id })
+        .from(students)
+        .where(and(eq(students.phone, student.phone), eq(students.status, "active")));
+      ids = siblings.map((s) => s.id);
+    } else {
+      ids = [Number(studentId)];
+    }
+  }
+
+  if (ids.length === 0) throw new ApiError(400, "زده کوونکی ونه موندل شو");
+
+  for (const id of ids) {
+    await db.run(sql`
+      INSERT INTO absent_parent_calls (student_id, attendance_date, called, updated_at)
+      VALUES (${id}, ${String(attendanceDate)}, ${called ? 1 : 0}, datetime('now'))
+      ON CONFLICT(student_id, attendance_date) DO UPDATE SET
+        called = excluded.called,
+        updated_at = datetime('now')
+    `);
+  }
+
+  res.respond(200, "د اړیکې حالت تازه شو", { updatedStudentIds: ids });
 });

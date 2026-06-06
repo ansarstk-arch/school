@@ -56,7 +56,19 @@ export const authService = {
    */
   async login(credentials) {
     try {
-      const response = await apiClient.post("/auth/login", credentials);
+      const loginId = String(credentials.identifier || credentials.email || "").trim();
+      const payload = {
+        identifier: loginId,
+        password: credentials.password,
+      };
+      // Teachers/staff use username → username@school.local; admins use full email
+      if (loginId.includes("@")) {
+        payload.email = loginId;
+      } else if (loginId) {
+        payload.email = `${loginId.toLowerCase()}@school.local`;
+      }
+
+      const response = await apiClient.post("/auth/login", payload);
       
       // Backend response: { success: true, message: string, status: 200, data: { user, accessToken, refreshToken } }
       if (response.success && response.data) {

@@ -24,8 +24,6 @@ export const getAllExamSubjectConfigs = asyncHandler(async (req, res) => {
     subjectId,
     institutionType,
     academicYear,
-    dateFrom,
-    dateTo,
     page = 1,
     limit = 12,
     search,
@@ -39,8 +37,6 @@ export const getAllExamSubjectConfigs = asyncHandler(async (req, res) => {
   if (subjectId) conditions.push(eq(examSubjectConfig.subjectId, Number(subjectId)));
   if (institutionType) conditions.push(eq(examSubjectConfig.institutionType, institutionType));
   if (academicYear) conditions.push(eq(exams.academicYear, academicYear));
-  if (dateFrom) conditions.push(sql`${exams.startDate} >= ${dateFrom}`);
-  if (dateTo) conditions.push(sql`${exams.endDate} <= ${dateTo}`);
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
     conditions.push(

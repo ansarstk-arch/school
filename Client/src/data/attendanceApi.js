@@ -20,6 +20,9 @@ const writeOfflineQueue = (queue) => {
   localStorage.setItem(OFFLINE_QR_QUEUE_KEY, JSON.stringify(queue));
 };
 
+export const getServerToday = async () =>
+  apiClient.request("/attendance/today", { method: "GET" });
+
 export const getAllAttendance = async (params = {}) => {
   // Remove empty values so they don't pollute the query string
   const clean = Object.fromEntries(
@@ -133,6 +136,7 @@ export const downloadAttendanceReport = async (params = {}) => {
 };
 
 export default {
+  getServerToday,
   getAllAttendance,
   bulkCreateAttendance,
   qrAttendance,

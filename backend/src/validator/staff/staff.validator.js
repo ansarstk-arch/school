@@ -72,3 +72,12 @@ export const updateStaffValidator = [
     .optional({ checkFalsy: true })
     .isLength({ max: 500 }).withMessage("یادښتونه باید د ۵۰۰ توري څخه لږ وي"),
 ];
+
+export const resetStaffPasswordValidator = [
+  body("newPassword")
+    .trim()
+    .notEmpty()
+    .withMessage("نوی پاسورډ اړین دی")
+    .isLength({ min: 6 })
+    .withMessage("پاسورډ باید لږ تر لږه ۶ توري ولري"),
+];

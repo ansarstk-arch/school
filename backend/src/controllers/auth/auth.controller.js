@@ -4,6 +4,25 @@ import { accessTokenGenerator, refreshTokenGenerator } from "../../utils/genToke
 import { comparePassword, hashPassword } from "../../utils/hash.util.js";
 import db from "../../configs/db/db.config.js";
 import { users } from "../../db/schema.js";
+import { parsePermissions } from "../../utils/permissions.util.js";
+
+const resolveLoginEmail = (identifier) => {
+  const loginId = String(identifier || "").trim().toLowerCase();
+  if (!loginId) return "";
+  if (loginId.includes("@")) return loginId;
+  return `${loginId}@school.local`;
+};
+
+const formatAuthUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  username: user.email?.endsWith("@school.local")
+    ? user.email.replace("@school.local", "")
+    : user.email,
+  role: user.role,
+  permissions: parsePermissions(user.permissions, user.role),
+});
 
 // Register (User)
 export const register = asyncHandler(async (req, res) => {
@@ -37,12 +56,7 @@ export const register = asyncHandler(async (req, res) => {
   const refreshToken = refreshTokenGenerator({ id: user.id });
 
   res.respond(201, "ثبت نام بریالی شو", { 
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    },
+    user: formatAuthUser(user),
     accessToken, 
     refreshToken 
   });
@@ -50,18 +64,18 @@ export const register = asyncHandler(async (req, res) => {
 
 // Login
 export const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { password, loginId, identifier, email } = req.body;
+  const resolvedEmail = resolveLoginEmail(loginId || identifier || email);
 
-  // Find user by email
-  const [user] = await db.select().from(users).where(eq(users.email, email));
+  const [user] = await db.select().from(users).where(eq(users.email, resolvedEmail));
   if (!user) {
-    return res.respond(400, "بریښنالیک یا پاسورډ سم نه دی");
+    return res.respond(400, "کارن نوم، بریښنالیک یا پاسورډ سم نه دی");
   }
 
   // Check password
   const match = await comparePassword(password, user.password);
   if (!match) {
-    return res.respond(400, "بریښنالیک یا پاسورډ سم نه دی");
+    return res.respond(400, "کارن نوم، بریښنالیک یا پاسورډ سم نه دی");
   }
 
   // Check if account is active
@@ -74,13 +88,7 @@ export const login = asyncHandler(async (req, res) => {
   const refreshToken = refreshTokenGenerator({ id: user.id });
 
   res.respond(200, "ننوتل بریالی شو", { 
-    user: {
-      id: user.id, 
-      name: user.name,
-      email: user.email,
-      role: user.role, 
-      permissions: user.permissions
-    },
+    user: formatAuthUser(user),
     accessToken, 
     refreshToken 
   });
@@ -114,17 +122,18 @@ export const verify = asyncHandler(async (req, res) => {
     return res.respond(403, "حساب غیر فعال دی");
   }
 
-  res.respond(200, "تایید شو", { user });
+  res.respond(200, "تایید شو", { user: formatAuthUser(user) });
 });
 
 // Change Password
 export const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
-  // Get current user
   const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
-  
-  // Verify current password
+  if (!user) {
+    return res.respond(404, "کارن ونه موندل شو");
+  }
+
   const match = await comparePassword(currentPassword, user.password);
   if (!match) {
     return res.respond(400, "اوسنی پاسورډ سم نه دی");
@@ -138,7 +147,10 @@ export const changePassword = asyncHandler(async (req, res) => {
 
   // Hash and update password
   const hashed = await hashPassword(newPassword);
-  await db.update(users).set({ password: hashed }).where(eq(users.id, user.id));
+  await db.update(users).set({
+    password: hashed,
+    updatedAt: new Date().toISOString(),
+  }).where(eq(users.id, user.id));
   
   res.respond(200, "پاسورډ بدل شو");
 });

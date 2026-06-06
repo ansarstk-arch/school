@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { StatCard } from "@/components/erp/StatCard";
 import { Badge } from "@/components/erp/Badge";
+import { ErpModal } from "@/components/erp/ErpModal";
 import { currentShamsiYear, todayAfghan } from "@/lib/afghan-date";
 import {
   Users, GraduationCap, BookOpen, Wallet, Receipt,
@@ -12,9 +13,12 @@ import {
   ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line,
 } from "recharts";
 import * as dashboardApi from "@/data/dashboardApi";
+import * as studentApi from "@/data/studentApi";
 import { toast } from "sonner";
 import { ErpLoader } from "@/components/erp/ErpLoader";
 import { ShamsiYearPicker } from "@/components/erp/ShamsiYearPicker";
+import { usePermissions } from "@/hooks/usePermissions";
+import { getRoutePermission } from "@/lib/permissions";
 
 // Helper function to format numbers
 const formatNumber = (num) => {
@@ -50,7 +54,9 @@ const VIEWS = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [view, setView] = useState("all");
+  const { dashboardViews, can, isAdmin } = usePermissions();
+  const availableViews = VIEWS.filter((v) => dashboardViews.includes(v.key));
+  const [view, setView] = useState(availableViews[0]?.key || "all");
   
   // Data states - no loading states, render immediately
   const [overview, setOverview] = useState(null);
@@ -62,18 +68,51 @@ export default function Dashboard() {
   const [financialSummaryData, setFinancialSummaryData] = useState([]);
   const [recentAdmissions, setRecentAdmissions] = useState([]);
   const [upcomingExams, setUpcomingExams] = useState([]);
+  const [examsLoading, setExamsLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
+  
+  // Student view modal state
+  const [viewStudentOpen, setViewStudentOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentLoading, setStudentLoading] = useState(false);
   
   const curYear = currentShamsiYear();
   const [selectedYear, setSelectedYear] = useState(String(curYear));
+  useEffect(() => {
+    if (!dashboardViews.includes(view)) {
+      setView(dashboardViews[0] || "school");
+    }
+  }, [dashboardViews, view]);
+
   const selectedLabel = VIEWS.find((v) => v.key === view)?.label;
   const CARD_GRID_CLASS = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3";
+
+  const openStudentView = async (student) => {
+    setViewStudentOpen(true);
+    setStudentLoading(true);
+    try {
+      const response = await studentApi.getStudentById(student.id);
+      setSelectedStudent(response.data.student);
+    } catch (error) {
+      toast.error(error.message || "د زده کوونکي معلومات ترلاسه نه شول");
+      setViewStudentOpen(false);
+    } finally {
+      setStudentLoading(false);
+    }
+  };
+
+  const filterCardsByPermission = (cards) =>
+    cards.filter((card) => {
+      if (!card.to) return true;
+      const module = getRoutePermission(card.to.split("?")[0]);
+      return !module || isAdmin || can(module);
+    });
 
   const getCardsForView = () => {
     if (!overview) return [];
 
     if (view === "all") {
-      return [
+      return filterCardsByPermission([
         { label: "ټول زده کوونکي", value: formatNumber(overview.students?.total || 0), icon: <Users className="size-5" />, accent: "info", to: "/students" },
         { label: "د ښوونځي", value: formatNumber(overview.students?.school || 0), icon: <Users className="size-5" />, to: "/students" },
         { label: "د مرکز", value: formatNumber(overview.students?.center || 0), icon: <Users className="size-5" />, to: "/students" },
@@ -81,37 +120,48 @@ export default function Dashboard() {
         { label: "ښوونکي", value: formatNumber(overview.teachers || 0), icon: <GraduationCap className="size-5" />, accent: "info", to: "/teachers" },
         { label: "ټولګي", value: formatNumber(overview.classes || 0), icon: <BookOpen className="size-5" />, to: "/classes" },
         { label: "مضامین", value: formatNumber(overview.subjects || 0), icon: <BookText className="size-5" />, to: "/subjects" },
-        { label: "میاشتنی عاید", value: formatCurrency(overview.revenue?.monthly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+        
+        // Revenue section - arranged together
         { label: "ورځنی عاید", value: formatCurrency(overview.revenue?.daily || 0), icon: <BadgeDollarSign className="size-5" />, accent: "success", to: "/revenue" },
+        { label: "میاشتنی عاید", value: formatCurrency(overview.revenue?.monthly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+        { label: "کلنی عاید", value: formatCurrency(overview.revenue?.yearly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+        { label: "د سټاک عاید", value: formatCurrency(overview.revenue?.inventory || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/inventory" },
+        
         { label: "ورځني لګښتونه", value: formatCurrency(overview.expenses?.daily || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
         { label: "میاشتني لګښتونه", value: formatCurrency(overview.expenses?.monthly || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
         { label: "کلني لګښتونه", value: formatCurrency(overview.expenses?.yearly || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
         { label: "د حاضرۍ سلنه", value: `${overview.attendancePercentage || 0}%`, icon: <CalendarCheck className="size-5" />, accent: "info", to: "/attendance/students" },
-        { label: "نه ورکړل شوي فیسونه", value: formatNumber(overview.unpaidFees || 0), icon: <AlertCircle className="size-5" />, accent: "destructive", to: "/revenue" },
+        { label: "نه ورکړل شوي فیسونه", value: formatNumber(overview.unpaidFees || 0), icon: <AlertCircle className="size-5" />, accent: "destructive", to: "/revenue?status=Unpaid" },
+        { label: "کم سټاک توکي", value: formatNumber(overview.lowStockItems || 0), icon: <AlertCircle className="size-5" />, accent: "warning", to: "/inventory?lowStock=true" },
         { label: "کارمندان", value: formatNumber(overview.staff || 0), icon: <UserCog className="size-5" />, to: "/staff" },
-        { label: "ټول معاشونه", value: formatCurrency(overview.salaries?.total || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries" },
+        { label: "ټول معاشونه", value: formatCurrency(overview.salaries?.total || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries?status=Pending" },
         { label: "د کارمندانو معاشونه", value: formatCurrency(overview.salaries?.staff || 0), icon: <Banknote className="size-5" />, to: "/salaries" },
         { label: "د ښوونکو معاشونه", value: formatCurrency(overview.salaries?.teachers || 0), icon: <Banknote className="size-5" />, to: "/salaries" },
-      ];
+      ]);
     }
 
-    return [
+    return filterCardsByPermission([
       { label: "زده کوونکي", value: formatNumber(overview.students || 0), icon: <Users className="size-5" />, accent: "info", to: "/students" },
       { label: "ښوونکي", value: formatNumber(overview.teachers || 0), icon: <GraduationCap className="size-5" />, accent: "info", to: "/teachers" },
       { label: "ټولګي", value: formatNumber(overview.classes || 0), icon: <BookOpen className="size-5" />, to: "/classes" },
       { label: "مضامین", value: formatNumber(overview.subjects || 0), icon: <BookText className="size-5" />, to: "/subjects" },
       { label: "کارمندان", value: formatNumber(overview.staff || 0), icon: <UserCog className="size-5" />, to: "/staff" },
       { label: "د حاضرۍ سلنه", value: `${overview.attendancePercentage || 0}%`, icon: <CalendarCheck className="size-5" />, accent: "info", to: "/attendance/students" },
-      { label: "میاشتنی عاید", value: formatCurrency(overview.revenue?.monthly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+      
+      // Revenue section - arranged together
       { label: "ورځنی عاید", value: formatCurrency(overview.revenue?.daily || 0), icon: <BadgeDollarSign className="size-5" />, accent: "success", to: "/revenue" },
+      { label: "میاشتنی عاید", value: formatCurrency(overview.revenue?.monthly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+      { label: "کلنی عاید", value: formatCurrency(overview.revenue?.yearly || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/revenue" },
+      { label: "د سټاک عاید", value: formatCurrency(overview.revenue?.inventory || 0), icon: <Wallet className="size-5" />, accent: "success", to: "/inventory" },
+      
       { label: "ورځني لګښتونه", value: formatCurrency(overview.expenses?.daily || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
       { label: "میاشتني لګښتونه", value: formatCurrency(overview.expenses?.monthly || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
       { label: "کلني لګښتونه", value: formatCurrency(overview.expenses?.yearly || 0), icon: <Receipt className="size-5" />, accent: "warning", to: "/expenses" },
-      { label: "نه ورکړل شوي فیسونه", value: formatNumber(overview.unpaidFees || 0), icon: <AlertCircle className="size-5" />, accent: "destructive", to: "/revenue" },
-      { label: "ټول معاشونه", value: formatCurrency(overview.salaries?.total || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries" },
+      { label: "نه ورکړل شوي فیسونه", value: formatNumber(overview.unpaidFees || 0), icon: <AlertCircle className="size-5" />, accent: "destructive", to: "/revenue?status=Unpaid" },
+      { label: "ټول معاشونه", value: formatCurrency(overview.salaries?.total || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries?status=Pending" },
       { label: "د کارمندانو معاش", value: formatCurrency(overview.salaries?.staff || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries" },
       { label: "د ښوونکو معاش", value: formatCurrency(overview.salaries?.teachers || 0), icon: <Banknote className="size-5" />, accent: "warning", to: "/salaries" },
-    ];
+    ]);
   };
 
   useEffect(() => {
@@ -149,9 +199,10 @@ export default function Dashboard() {
         toast.error("د چارټونو معلومات نه شي ترلاسه کیدای");
       });
 
+    setExamsLoading(true);
     // Load lists and status - passing selectedYear
     Promise.all([
-      dashboardApi.getRecentAdmissions(view, 10, selectedYear),
+      dashboardApi.getRecentAdmissions(view, 5, selectedYear),
       dashboardApi.getUpcomingExams(view, 5, selectedYear),
       dashboardApi.getSystemStatus(),
     ])
@@ -162,7 +213,8 @@ export default function Dashboard() {
       })
       .catch(error => {
         console.error("Lists load error:", error);
-      });
+      })
+      .finally(() => setExamsLoading(false));
   };
 
   return (
@@ -180,7 +232,7 @@ export default function Dashboard() {
             <ShamsiYearPicker value={selectedYear} onChange={(v) => setSelectedYear(v)} placeholder="کال وټاکئ" />
           </div>
           <div className="flex items-center gap-1 bg-muted rounded-md p-1">
-            {VIEWS.map((v) => (
+            {availableViews.map((v) => (
               <button
                 key={v.key}
                 onClick={() => setView(v.key)}
@@ -353,12 +405,12 @@ export default function Dashboard() {
           ) : (
             <div className="divide-y divide-border">
               {recentAdmissions.map((student) => (
-                <div key={student.id} className="px-4 py-3 flex items-center justify-between hover:bg-muted/50 cursor-pointer" onClick={() => navigate(`/students/${student.id}`)}>
+                <div key={student.id} className="px-4 py-3 flex items-center justify-between hover:bg-muted/50 cursor-pointer" onClick={() => openStudentView(student)}>
                   <div>
                     <p className="text-sm font-medium">{student.fullName}</p>
                     <p className="text-xs text-muted-foreground">{student.className} {student.classSection ? `- ${student.classSection}` : ""}</p>
                   </div>
-                  <Badge variant="outline">{student.classType}</Badge>
+                  <Badge variant="outline">{student.classTypeLabel || student.classType}</Badge>
                 </div>
               ))}
             </div>
@@ -387,8 +439,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-card border border-border rounded-md p-4">
           <h3 className="font-semibold text-sm mb-3">راتلونکې ازموینې</h3>
-          {upcomingExams.length === 0 ? (
+          {examsLoading ? (
             <div className="text-sm text-muted-foreground text-center py-6">معلومات ترلاسه کیږي...</div>
+          ) : upcomingExams.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">د دې کال لپاره راتلونکې ازموینې نشته</div>
           ) : (
             <div className="space-y-2">
               {upcomingExams.map((exam) => (
@@ -396,7 +450,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium">{exam.examTitle}</p>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xs text-muted-foreground">{exam.startDate}</span>
-                    <Badge variant="outline">{exam.institutionType}</Badge>
+                    <Badge variant="outline">{exam.institutionTypeLabel || exam.institutionType}</Badge>
                   </div>
                 </div>
               ))}
@@ -404,6 +458,87 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Student View Modal */}
+      <ErpModal
+        open={viewStudentOpen}
+        onOpenChange={setViewStudentOpen}
+        title="د زده کوونکي معلومات"
+        size="lg"
+        footer={
+          <button onClick={() => setViewStudentOpen(false)} className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded font-medium">تړل</button>
+        }
+      >
+        {studentLoading ? (
+          <div className="flex justify-center py-8">
+            <ErpLoader />
+          </div>
+        ) : selectedStudent ? (
+          <div className="space-y-4">
+            {/* Basic Info */}
+            <div className="border border-border rounded-lg p-4 bg-muted/30">
+              <h4 className="text-sm font-semibold mb-3 text-primary">بنسټیز معلومات</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">بشپړ نوم:</span>
+                  <p className="font-medium">{selectedStudent.fullName}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">د پلار نوم:</span>
+                  <p className="font-medium">{selectedStudent.fatherName}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">ټولګی:</span>
+                  <p className="font-medium">{selectedStudent.className}{selectedStudent.classSection ? ` - ${selectedStudent.classSection}` : ''}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">ډول:</span>
+                  <p className="font-medium">
+                    <Badge variant="outline">{selectedStudent.classType}</Badge>
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">تعلیمي کال:</span>
+                  <p className="font-medium">{selectedStudent.academicYear}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">د شمولیت نېټه:</span>
+                  <p className="font-medium">{selectedStudent.enrollmentDate}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Contact Info */}
+            {(selectedStudent.phone || selectedStudent.emergencyContact) && (
+              <div className="border border-border rounded-lg p-4 bg-muted/30">
+                <h4 className="text-sm font-semibold mb-3 text-primary">د اړیکې معلومات</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {selectedStudent.phone && (
+                    <div>
+                      <span className="text-muted-foreground">ټېلیفون:</span>
+                      <p className="font-medium">{selectedStudent.phone}</p>
+                    </div>
+                  )}
+                  {selectedStudent.emergencyContact && (
+                    <div>
+                      <span className="text-muted-foreground">بیړنی اړیکه:</span>
+                      <p className="font-medium">{selectedStudent.emergencyContact}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Additional Info */}
+            {selectedStudent.address && (
+              <div className="border border-border rounded-lg p-4 bg-muted/30">
+                <h4 className="text-sm font-semibold mb-3 text-primary">پته</h4>
+                <p className="text-sm">{selectedStudent.address}</p>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </ErpModal>
     </div>
   );
 }

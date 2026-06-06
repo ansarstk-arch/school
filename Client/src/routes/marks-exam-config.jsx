@@ -302,7 +302,13 @@ export default function MarksExamConfigPage() {
 
   const filterDefs = useMemo(
     () => [
-      { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear" },
+      { key: "search", label: "لټون", type: "input", placeholder: "امتحان، مضمون…" },
+      {
+        key: "institutionType",
+        label: "ادارې ډول",
+        type: "select",
+        options: INSTITUTION_TYPES,
+      },
       {
         key: "examId",
         label: "امتحان",
@@ -311,12 +317,7 @@ export default function MarksExamConfigPage() {
           value: String(e.id),
           label: e.examTitle,
         })),
-      },
-      {
-        key: "institutionType",
-        label: "اداره",
-        type: "select",
-        options: INSTITUTION_TYPES,
+        disabled: !listFilters.institutionType,
       },
       {
         key: "classId",
@@ -326,12 +327,11 @@ export default function MarksExamConfigPage() {
           value: String(c.id),
           label: `${c.name}${c.section ? ` (${c.section})` : ""}`,
         })),
+        disabled: !listFilters.examId,
       },
-      { key: "dateFrom", label: "له نېټې", type: "shamsiDate" },
-      { key: "dateTo", label: "تر نېټې", type: "shamsiDate" },
-      { key: "search", label: "لټون", type: "input", placeholder: "امتحان، مضمون…" },
+      { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear" },
     ],
-    [listLookup.exams, listLookup.classes]
+    [listLookup.exams, listLookup.classes, listFilters.institutionType, listFilters.examId]
   );
 
   return (
@@ -350,6 +350,20 @@ export default function MarksExamConfigPage() {
             <ShamsiYearPicker value={academicYear} onChange={setAcademicYear} />
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            ادارې ډول
+            <select
+              className={SEL}
+              value={setup.institutionType}
+              onChange={(e) =>
+                setSetup((s) => ({ ...s, institutionType: e.target.value, examId: "", classId: "" }))
+              }
+            >
+              {INSTITUTION_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             امتحان
             <select
               className={SEL}
@@ -357,6 +371,7 @@ export default function MarksExamConfigPage() {
               onChange={(e) =>
                 setSetup((s) => ({ ...s, examId: e.target.value, classId: "" }))
               }
+              disabled={!setup.institutionType}
             >
               <option value="">امتحان</option>
               {exams.map((ex) => (
@@ -364,20 +379,6 @@ export default function MarksExamConfigPage() {
                   {ex.examTitle}
                   {ex.startDate ? ` (${formatShamsi(ex.startDate)})` : ""}
                 </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            ادارې ډول
-            <select
-              className={SEL}
-              value={setup.institutionType}
-              onChange={(e) =>
-                setSetup((s) => ({ ...s, institutionType: e.target.value, classId: "" }))
-              }
-            >
-              {INSTITUTION_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </label>
@@ -419,8 +420,26 @@ export default function MarksExamConfigPage() {
       <FilterBar
         filters={filterDefs}
         defaultValues={{ academicYear: session || String(currentShamsiYear()) }}
-        onApply={(v) => {
-          setListFilters(v);
+        onApply={(newFilters) => {
+          // Handle cascading: when type changes, reset exam and class
+          if (newFilters.institutionType !== listFilters.institutionType) {
+            setListFilters({ 
+              ...newFilters, 
+              examId: "", 
+              classId: "" 
+            });
+          }
+          // When exam changes, reset class
+          else if (newFilters.examId !== listFilters.examId) {
+            setListFilters({ 
+              ...newFilters, 
+              classId: "" 
+            });
+          }
+          // Normal update
+          else {
+            setListFilters(newFilters);
+          }
           setPage(1);
         }}
         onClear={() => {
@@ -435,7 +454,7 @@ export default function MarksExamConfigPage() {
         rowData={configs}
         loading={loading}
         serverSidePagination
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}

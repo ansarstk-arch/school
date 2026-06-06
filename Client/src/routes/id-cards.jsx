@@ -7,9 +7,11 @@ import TeacherIDCard from "@/components/erp/TeacherIDCard";
 import StaffIDCard from "@/components/erp/StaffIDCard";
 import * as teacherApi from "@/data/teacherApi";
 import * as staffApi from "@/data/staffApi";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { currentShamsiYear } from "@/lib/afghan-date";
+
+const DEFAULT_ID_CARD_YEAR = "1405";
 import * as studentApi from "@/data/studentApi";
 import { getAllClasses } from "@/data/classApi";
 import { generateSingleCardPDF, generateMultipleCardsPDF } from "@/utils/idCardPdf";
@@ -52,7 +54,7 @@ import { ShamsiYearPicker } from "@/components/erp/ShamsiYearPicker";
 
 // ─── Custom ID Card Filter Component ──────────────────────────────────────────
 function IdCardFilterBar({ activeTab, onApply, onClear }) {
-  const [filters, setFilters] = useState({ academicYear: String(currentShamsiYear()) });
+  const [filters, setFilters] = useState({ academicYear: DEFAULT_ID_CARD_YEAR });
   const [availableClasses, setAvailableClasses] = useState([]);
   const [loadingClasses, setLoadingClasses] = useState(false);
 
@@ -66,6 +68,8 @@ function IdCardFilterBar({ activeTab, onApply, onClear }) {
     }
     
     setFilters(newFilters);
+    // Apply filter immediately (instant filtering)
+    onApply(newFilters);
   };
 
   // Fetch classes when type and year are selected (only for students)
@@ -90,23 +94,27 @@ function IdCardFilterBar({ activeTab, onApply, onClear }) {
 
   // Reset filters when tab changes
   useEffect(() => {
-    const defaultFilters = activeTab === "students" ? { academicYear: String(currentShamsiYear()) } : {};
+    const defaultFilters = { academicYear: DEFAULT_ID_CARD_YEAR };
     setFilters(defaultFilters);
     setAvailableClasses([]);
   }, [activeTab]);
 
-  const handleApply = () => {
-    onApply(filters);
-  };
-
   const handleClear = () => {
-    const defaultFilters = activeTab === "students" ? { academicYear: String(currentShamsiYear()) } : {};
+    const defaultFilters = { academicYear: DEFAULT_ID_CARD_YEAR };
     setFilters(defaultFilters);
     setAvailableClasses([]);
-    onClear();
+    onClear(defaultFilters);
   };
 
-  const hasFilters = Object.keys(filters).length > (activeTab === "students" ? 1 : 0); // Students have default academicYear
+  const hasActiveFilters = () => {
+    if (activeTab === "students") {
+      // Check if there are filters beyond the default academicYear
+      return Object.keys(filters).some(key => 
+        key !== 'academicYear' && filters[key] !== '' && filters[key] !== undefined
+      );
+    }
+    return Object.keys(filters).length > 0;
+  };
 
   return (
     <div className="bg-card border rounded-md p-3 space-y-3">
@@ -170,6 +178,16 @@ function IdCardFilterBar({ activeTab, onApply, onClear }) {
             </div>
           )}
         </div>
+        
+        {/* Clear button - inline */}
+        {hasActiveFilters() && (
+          <button
+            onClick={handleClear}
+            className="text-xs border border-input rounded px-2.5 py-1.5 hover:bg-muted text-muted-foreground flex items-center gap-1"
+          >
+            <X className="size-3" /> پاکول
+          </button>
+        )}
       </div>
 
       {/* Class Selection - Only show for students when type and year are selected */}
@@ -195,24 +213,6 @@ function IdCardFilterBar({ activeTab, onApply, onClear }) {
           </div>
         </div>
       )}
-
-      {/* Action Buttons */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleApply}
-          className="text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 hover:opacity-90"
-        >
-          فلټر کول
-        </button>
-        {hasFilters && (
-          <button
-            onClick={handleClear}
-            className="text-xs border border-input rounded px-2.5 py-1.5 hover:bg-muted text-muted-foreground"
-          >
-            پاکول
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -222,7 +222,7 @@ export default function IdCardsPage() {
   const [teachers, setTeachers] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [classes, setClasses] = useState([]);
-  const [filters, setFilters] = useState({ academicYear: String(currentShamsiYear()) });
+  const [filters, setFilters] = useState({ academicYear: DEFAULT_ID_CARD_YEAR });
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [singleLoadingId, setSingleLoadingId] = useState(null);
@@ -232,11 +232,11 @@ export default function IdCardsPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("students");
   const [teacherPage, setTeacherPage] = useState(1);
-  const [teacherPagination, setTeacherPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [teacherPagination, setTeacherPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [staffPage, setStaffPage] = useState(1);
-  const [staffPagination, setStaffPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [staffPagination, setStaffPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const cardRefs = useRef({});
   const previewRef = useRef(null);
 
@@ -326,7 +326,7 @@ export default function IdCardsPage() {
     
     // Reset filters based on tab
     if (tab === "students") {
-      setFilters({ academicYear: String(currentShamsiYear()) });
+      setFilters({ academicYear: DEFAULT_ID_CARD_YEAR });
     } else {
       setFilters({});
     }
@@ -578,7 +578,7 @@ export default function IdCardsPage() {
           setStaffPage(1); 
         }}
         onClear={() => { 
-          const defaultFilters = activeTab === "students" ? { academicYear: String(currentShamsiYear()) } : {};
+          const defaultFilters = { academicYear: DEFAULT_ID_CARD_YEAR };
           setFilters(defaultFilters); 
           setPage(1); 
           setTeacherPage(1); 

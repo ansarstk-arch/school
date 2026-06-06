@@ -11,6 +11,8 @@ import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 import { ACTIVE_SESSION } from "@/constants";
+import { currentShamsiYear } from "@/lib/afghan-date";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   getExpenseCategories,
   createExpenseCategory,
@@ -28,7 +30,7 @@ const SEL = "w-full border border-input rounded px-2 py-1.5 bg-background text-s
 
 const INSTITUTE_TYPES = [
   { value: "School",  label: "ښوونځی" },
-  { value: "Center",  label: "مرکز"   },
+  { value: "Center",  label: "سینټر"   },
   { value: "Madrasa", label: "مدرسه"  },
 ];
 
@@ -39,18 +41,20 @@ const PERIOD_TYPES = [
 ];
 
 const EMPTY_EXPENSE  = { title: "", categoryId: "", instituteType: "School", periodType: "daily", amount: "", date: TODAY, description: "" };
-const EMPTY_CATEGORY = { name: "", nameEn: "" };
+const EMPTY_CATEGORY = { name: "" };
 
 const EXPENSE_FILTERS = (cats) => [
   { key: "title",         label: "سرلیک لټون", type: "input",  placeholder: "سرلیک..." },
   { key: "category",      label: "ډول",        type: "select", options: cats.map((c) => ({ value: String(c.id), label: c.name })) },
-  { key: "instituteType", label: "ادارې ډول",  type: "select", options: INSTITUTE_TYPES.map(({ value, label }) => ({ value, label })) },
-  { key: "dateFrom",      label: "له نېټې",    type: "shamsiDate" },
-  { key: "dateTo",        label: "تر نېټې",    type: "shamsiDate" },
+  { key: "instituteType", label: "اداري څانګه",  type: "select", options: INSTITUTE_TYPES.map(({ value, label }) => ({ value, label })) },
+  { key: "academicYear",  label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
 ];
-const EXPENSE_DEFAULTS = {};
+const EXPENSE_DEFAULTS = { academicYear: String(currentShamsiYear()) };
 
 export default function ExpensesPage() {
+  const { allowedInstitutions } = usePermissions();
+  const visibleInstituteTypes = INSTITUTE_TYPES.filter((t) => allowedInstitutions.includes(t.value));
+
   const [categories, setCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -149,9 +153,8 @@ export default function ExpensesPage() {
   const mapFiltersToParams = (filter) => ({
     q: filter.title,
     categoryId: filter.category,
-  instituteType: filter.instituteType,
-    startDate: filter.dateFrom,
-    endDate: filter.dateTo,
+    instituteType: filter.instituteType,
+    academicYear: filter.academicYear || String(currentShamsiYear()),
   });
 
   const fetchCategoryOptions = useCallback(async () => {
@@ -302,7 +305,7 @@ export default function ExpensesPage() {
   };
 
   const openAddCat = () => { setCatForm(EMPTY_CATEGORY); setCatErrors({}); setCatOpen(true); };
-  const openEditCat = (c) => { setCatSel(c); setCatForm({ name: c.name, nameEn: c.nameEn }); setCatErrors({}); setCatEditOpen(true); };
+  const openEditCat = (c) => { setCatSel(c); setCatForm({ name: c.name }); setCatErrors({}); setCatEditOpen(true); };
   const openDelCat = (c) => { setCatSel(c); setCatDelOpen(true); };
 
   const validateCategoryForm = (form) => {
@@ -311,9 +314,6 @@ export default function ExpensesPage() {
       errors.name = "د ډول نوم اړین دی";
     } else if (form.name.trim().length > 150) {
       errors.name = "د ډول نوم باید له ۱۵۰ حروفو کم وي";
-    }
-    if (form.nameEn?.length > 150) {
-      errors.nameEn = "انګلیسي نوم باید له ۱۵۰ حروفو کم وي";
     }
     return errors;
   };
@@ -390,6 +390,18 @@ export default function ExpensesPage() {
     [stats.categoryTotals]
   );
 
+  const categoryRows = useMemo(
+    () => categories.map((category) => {
+      const totals = categoryTotalsMap.get(String(category.id));
+      return {
+        ...category,
+        expenseCount: totals?.count || 0,
+        expenseTotal: Number(totals?.total || 0),
+      };
+    }),
+    [categories, categoryTotalsMap]
+  );
+
   const chartData = useMemo(() => (
     stats.categoryTotals?.map((item) => ({
       category: item.categoryName || "—",
@@ -400,34 +412,26 @@ export default function ExpensesPage() {
   const categoryColumnDefs = useMemo(() => [
     {
       field: "name",
-      headerName: "د ډول نوم (پښتو)",
+      headerName: "د ډول نوم",
       flex: 1.6,
       minWidth: 180,
     },
     {
-      field: "nameEn",
-      headerName: "نوم (انګلیسي)",
-      flex: 1.4,
-      minWidth: 170,
-      valueGetter: (params) => params.data?.nameEn || "—",
-    },
-    {
-      field: "count",
+      field: "expenseCount",
       headerName: "لګښتونه",
       flex: 0.9,
       minWidth: 120,
       sortable: false,
       filter: false,
-      valueGetter: (params) => categoryTotalsMap.get(String(params.data.id))?.count || 0,
     },
     {
-      field: "total",
+      field: "expenseTotal",
       headerName: "ټول اندازه",
       flex: 1,
       minWidth: 130,
       sortable: false,
       filter: false,
-      valueGetter: (params) => `AFN ${Number(categoryTotalsMap.get(String(params.data.id))?.total || 0).toLocaleString()}`,
+      valueFormatter: (params) => `AFN ${Number(params.value || 0).toLocaleString()}`,
     },
     {
       field: "actions",
@@ -446,7 +450,7 @@ export default function ExpensesPage() {
         );
       },
     },
-  ], [categoryTotalsMap]);
+  ], []);
 
   const expenseColumnDefs = useMemo(() => [
     {
@@ -516,13 +520,22 @@ export default function ExpensesPage() {
 
   const InstToggle = useCallback(({ val, onChange }) => (
     <div className="flex gap-2">
-      {INSTITUTE_TYPES.map(({ value, label }) => (
+      {visibleInstituteTypes.map(({ value, label }) => (
         <button key={value} type="button" onClick={() => onChange(value)}
           className={`flex-1 py-1.5 rounded border text-xs font-medium transition-all ${val === value ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"}`}
         >{label}</button>
       ))}
     </div>
-  ), []);
+  ), [visibleInstituteTypes]);
+
+  const expenseFilters = useMemo(
+    () => EXPENSE_FILTERS(categoryOptions).map((filter) => (
+      filter.key === "instituteType"
+        ? { ...filter, options: visibleInstituteTypes.map(({ value, label }) => ({ value, label })) }
+        : filter
+    )),
+    [categoryOptions, visibleInstituteTypes]
+  );
 
   const ExpForm = useCallback(({ form, onChange }) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -611,7 +624,7 @@ export default function ExpensesPage() {
         <h3 className="text-sm font-semibold mb-2 px-0.5">د لګښت ډولونه</h3>
         <AgGridTable
           columnDefs={categoryColumnDefs}
-          rowData={categories}
+          rowData={categoryRows}
           loading={loadingCategories}
           emptyText="هیڅ ډول ونه موندل شو"
           searchPlaceholder="د ډول نوم یا انګلیسي نوم..."
@@ -628,7 +641,12 @@ export default function ExpensesPage() {
 
       <div>
         <h3 className="text-sm font-semibold mb-2 px-0.5">د لګښتونو لیست</h3>
-        <FilterBar filters={EXPENSE_FILTERS(categoryOptions)} defaultValues={EXPENSE_DEFAULTS} onApply={(data) => { setFilters(data); setExpensePage(1); }} onClear={() => { setFilters({}); setExpensePage(1); }} />
+        <FilterBar
+          filters={expenseFilters}
+          defaultValues={EXPENSE_DEFAULTS}
+          onApply={(data) => { setFilters(data); setExpensePage(1); }}
+          onClear={(cleared) => { setFilters(cleared || { academicYear: String(currentShamsiYear()) }); setExpensePage(1); }}
+        />
         <div className="mt-3">
           <AgGridTable
             columnDefs={expenseColumnDefs}
@@ -698,12 +716,8 @@ export default function ExpensesPage() {
       >
         <div className="space-y-3">
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">د ډول نوم (پښتو)</span>
+            <span className="text-xs text-muted-foreground">د ډول نوم</span>
             <Input value={catForm.name} handleChanges={(e) => setC("name", e.target.value)} placeholder="مثال: معاشونه" error={catErrors.name} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">نوم (انګلیسي) — اختیاري</span>
-            <Input value={catForm.nameEn} handleChanges={(e) => setC("nameEn", e.target.value)} placeholder="e.g. Salaries" error={catErrors.nameEn} />
           </div>
         </div>
       </ErpModal>
@@ -717,12 +731,8 @@ export default function ExpensesPage() {
       >
         <div className="space-y-3">
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">د ډول نوم (پښتو)</span>
+            <span className="text-xs text-muted-foreground">د ډول نوم</span>
             <Input value={catForm.name} handleChanges={(e) => setC("name", e.target.value)} placeholder="مثال: معاشونه" error={catErrors.name} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">نوم (انګلیسي) — اختیاري</span>
-            <Input value={catForm.nameEn} handleChanges={(e) => setC("nameEn", e.target.value)} placeholder="e.g. Salaries" error={catErrors.nameEn} />
           </div>
         </div>
       </ErpModal>

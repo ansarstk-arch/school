@@ -1,0 +1,226 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║     🎓 SCHOOL MANAGEMENT SYSTEM - COMPLETE SETUP GUIDE 🎓     ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+🎯 WHAT YOU HAVE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Backend + Frontend integrated (one URL)
+✅ Works offline on this PC
+✅ Accessible from phones/tablets on same WiFi
+✅ Auto-start on Windows boot capability
+✅ SQLite database (local, secure)
+
+
+🚀 QUICK START (2 Options):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+📋 OPTION 1: AUTO-START (Recommended for School Server)
+──────────────────────────────────────────────────────────────────
+
+Step 1: Install Auto-Start (One-time setup)
+  → Double-click: INSTALL_AUTO_START.bat
+  → Follow instructions
+  → Restart your PC
+
+Step 2: Done!
+  → Server starts automatically every time PC boots
+  → No need to do anything manually
+  → Just turn on PC → System ready!
+
+Access URLs:
+  This PC:     http://localhost:3000
+  Phones:      http://192.168.43.215:3000
+
+
+📋 OPTION 2: MANUAL START (Testing/Development)
+──────────────────────────────────────────────────────────────────
+
+Step 1: Start Server
+  → Double-click: START_SERVER.bat
+  → Keep window open
+
+Step 2: Access System
+  This PC:     http://localhost:3000
+  Phones:      http://192.168.43.215:3000
+
+
+📱 HOW TO ACCESS FROM PHONES/TABLETS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Requirements:
+  ✓ Phone/tablet connected to SAME WiFi as server PC
+  ✓ Server is running on PC
+
+Steps:
+  1. Open browser on phone (Chrome, Safari, etc.)
+  2. Type: http://192.168.43.215:3000
+  3. Press Go/Enter
+  4. System loads - login and use!
+
+✨ Both frontend and backend work from this ONE URL!
+
+
+🛠️ UTILITY FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INSTALL_AUTO_START.bat        ⚡ Enable auto-start on boot
+UNINSTALL_AUTO_START.bat      🗑️  Disable auto-start
+START_SERVER.bat              ▶️  Start server manually
+STOP_SERVER.bat               🛑 Stop background server
+CHECK_SERVER_STATUS.bat       📊 Check if running
+CHECK_IP_ADDRESS.bat          📍 Find your WiFi IP
+
+
+📊 SYSTEM ARCHITECTURE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────┐
+│                      SERVER PC (Port 3000)                  │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  Frontend (React) + Backend (Node.js)                 │ │
+│  │  Both served from: http://192.168.43.215:3000         │ │
+│  └───────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  Database: SQLite (backend/database/school.db)        │ │
+│  └───────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                           ↕
+                    [School WiFi]
+                           ↕
+        ┌──────────┬──────────┬──────────┬──────────┐
+        │ Phone 1  │ Phone 2  │ Tablet   │ Laptop   │
+        │ Teacher  │ Admin    │ Staff    │ Office   │
+        └──────────┴──────────┴──────────┴──────────┘
+
+
+⚙️ RECOMMENDED SETTINGS FOR SERVER PC:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Disable Sleep Mode:
+   Settings > System > Power & sleep > Never
+
+2. Keep PC Plugged In:
+   Don't run on battery
+
+3. Enable Auto-Login (Optional):
+   netplwiz > Uncheck "Users must enter password"
+
+4. Allow Port 3000 in Firewall:
+   See: FIREWALL_SETUP.txt (if devices can't connect)
+
+5. Static IP (Optional but recommended):
+   Network Settings > Set manual IP: 192.168.43.215
+
+
+📆 DAILY ROUTINE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+With Auto-Start Enabled:
+  Morning:
+    1. Turn on server PC
+    2. Wait 30 seconds for boot
+    3. See popup: "School Management Server Started!"
+    4. Done! System ready for all users
+
+  Evening:
+    1. (Optional) Run STOP_SERVER.bat
+    2. Or just shut down PC
+
+Without Auto-Start:
+  Morning:
+    1. Turn on server PC
+    2. Double-click START_SERVER.bat
+    3. Share URL with staff
+
+  Evening:
+    1. Close server window (Ctrl+C)
+
+
+🔒 SECURITY NOTES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Secure Setup:
+  • Not exposed to internet (WiFi only)
+  • User authentication required
+  • Database on local PC
+  • No external dependencies
+
+⚠️ Important:
+  • Only accessible on school WiFi
+  • Change default admin password
+  • Regular database backups (weekly)
+  • Keep Windows updated
+
+
+💾 BACKUP INSTRUCTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Database Location:
+  backend/database/school.db
+
+How to Backup:
+  1. Stop server (STOP_SERVER.bat)
+  2. Copy backend/database/school.db
+  3. Paste to USB drive or external hard disk
+  4. Rename with date: school_backup_2026-06-04.db
+  5. Restart server
+
+Backup Schedule:
+  • Daily: If data changes frequently
+  • Weekly: For normal use
+  • Monthly: Archive old backups
+
+
+🔧 TROUBLESHOOTING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Problem: Can't access from phone
+Solution:
+  ✓ Check same WiFi network
+  ✓ Run CHECK_SERVER_STATUS.bat
+  ✓ Check Windows Firewall (see FIREWALL_SETUP.txt)
+  ✓ Verify IP: Run CHECK_IP_ADDRESS.bat
+
+Problem: Server not starting on boot
+Solution:
+  ✓ Run INSTALL_AUTO_START.bat again
+  ✓ Check Task Manager for node.exe
+  ✓ Try manual start: START_SERVER.bat
+
+Problem: IP address changed
+Solution:
+  ✓ Run CHECK_IP_ADDRESS.bat
+  ✓ Update URL with new IP
+  ✓ Or set static IP in router settings
+
+Problem: Slow performance
+Solution:
+  ✓ Close other programs on server PC
+  ✓ Check WiFi signal strength
+  ✓ Restart server and router
+
+
+📞 QUICK REFERENCE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Access URLs:
+  This PC:      http://localhost:3000
+  Phones:       http://192.168.43.215:3000
+
+Check Status:   CHECK_SERVER_STATUS.bat
+Stop Server:    STOP_SERVER.bat or Ctrl+C
+Start Server:   START_SERVER.bat
+Check IP:       CHECK_IP_ADDRESS.bat
+
+Database:       backend/database/school.db
+Backup:         Copy database file weekly
+
+
+═══════════════════════════════════════════════════════════════════
+Perfect setup for schools! Simple, secure, and offline-capable! 🎉
+═══════════════════════════════════════════════════════════════════

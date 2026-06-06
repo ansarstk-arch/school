@@ -27,14 +27,12 @@ const REPORT_FILTERS = [
     ],
   },
   {
-    key: "year", label: "تعلیمي کال", type: "select",
-    options: SESSIONS.map((s) => ({ value: s, label: s })),
+    key: "academicYear", label: "تعلیمي کال", type: "shamsiYear",
+    placeholder: "تعلیمي کال",
   },
-  { key: "dateFrom", label: "له نېټې", type: "date" },
-  { key: "dateTo", label: "تر نېټې", type: "date" },
 ];
 
-const REPORT_DEFAULTS = { year: ACTIVE_SESSION };
+const REPORT_DEFAULTS = { academicYear: ACTIVE_SESSION };
 
 export default function ReportsPage() {
   const [filters, setFilters] = useState(REPORT_DEFAULTS);
@@ -52,7 +50,7 @@ export default function ReportsPage() {
         filters={REPORT_FILTERS}
         defaultValues={REPORT_DEFAULTS}
         onApply={setFilters}
-        onClear={() => setFilters({})}
+        onClear={(cleared) => setFilters(cleared || REPORT_DEFAULTS)}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

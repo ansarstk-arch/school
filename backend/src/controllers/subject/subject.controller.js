@@ -12,7 +12,11 @@ export const getAllSubjects = asyncHandler(async (req, res) => {
 
   if (name) conditions.push(like(subjects.name, `%${name}%`));
   if (type) conditions.push(eq(subjects.type, type));
-  if (academicYear) conditions.push(eq(subjects.academicYear, academicYear));
+  
+  // Always filter by academic year (use current year if not provided)
+  const defaultYear = String(new Date().getFullYear());
+  const year = academicYear || defaultYear;
+  conditions.push(eq(subjects.academicYear, year));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

@@ -12,6 +12,8 @@ import {
   users 
 } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
+import { currentShamsiYear } from "../../utils/shamsiDate.util.js";
+import { columnInShamsiYear } from "../../utils/yearFilter.util.js";
 import { generateSalarySlipPDF } from "../../utils/salarySlipSimple.util.js";
 import { 
   generateSalaryExcelReport, 
@@ -38,6 +40,7 @@ const getPersonDetails = async (personType, personId) => {
         fatherName: teachers.fatherName,
         education: teachers.education,
         salary: teachers.salary,
+        status: teachers.status,
       })
       .from(teachers)
       .where(eq(teachers.id, personId));
@@ -183,6 +186,10 @@ export const createSalary = asyncHandler(async (req, res) => {
   
   if (!person) {
     throw new ApiError(404, "کس ونه موندل شو");
+  }
+
+  if (personType === "Teacher" && person.status === "inactive") {
+    throw new ApiError(400, "غیر فعال ښوونکي لپاره معاش نشي جوړېدای");
   }
 
   const finalBaseSalary = customBaseSalary || defaultBaseSalary;
@@ -473,8 +480,14 @@ export const getAllSalaries = asyncHandler(async (req, res) => {
     conditions.push(eq(salaries.month, month));
   }
 
+  // Only filter by academicYear if it's provided
+  // Note: This column may not exist in older databases
   if (academicYear) {
-    conditions.push(eq(salaries.academicYear, academicYear));
+    try {
+      conditions.push(eq(salaries.academicYear, academicYear));
+    } catch (error) {
+      console.warn('academicYear column may not exist in salaries table');
+    }
   }
 
   if (paymentStatus) {
@@ -924,6 +937,7 @@ export const getAllAdvances = asyncHandler(async (req, res) => {
     advanceType,
     status,
     search,
+    academicYear,
     page = 1,
     limit = 10,
     sortBy = "createdAt",
@@ -944,6 +958,9 @@ export const getAllAdvances = asyncHandler(async (req, res) => {
   if (status) {
     conditions.push(eq(advances.status, status));
   }
+
+  const year = academicYear || String(currentShamsiYear());
+  conditions.push(columnInShamsiYear(advances.requestDate, year));
 
   // Get advances
   let query = db.select().from(advances);

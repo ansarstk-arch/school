@@ -93,11 +93,11 @@ const validateParent = (data) => {
 };
 
 const PARENT_FILTERS = [
-  { key: "id",       label: "د والد ID", type: "input", placeholder: "د والد ID..." },
+  { key: "id",       label: "د والد ID", type: "number", placeholder: "د والد ID..." },
   { key: "name",     label: "د نوم لټون", type: "input", placeholder: "د والد نوم..." },
   { key: "phone",    label: "ټېلیفون نمبر", type: "input", placeholder: "+93 7XX XXX XXX" },
   { key: "username", label: "کارن نوم", type: "input", placeholder: "کارن نوم..." },
-  { key: "instituteType", label: "د مؤسسې ډول", type: "select", options: INSTITUTE_TYPES.map(({ value, label }) => ({ value, label })) },
+  { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
 ];
 
 export default function ParentsPage() {
@@ -115,7 +115,7 @@ export default function ParentsPage() {
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [parent, setParent] = useState(EMPTY_PARENT);
   const [selected, setSelected] = useState(null);
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState({ academicYear: String(currentShamsiYear()) }); // Initialize with default year
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -146,61 +146,64 @@ export default function ParentsPage() {
 
   useEffect(() => {
     fetchParents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, page]);
 
   // Fetch classes when institute types change
   useEffect(() => {
-    if (parent.instituteTypes && parent.instituteTypes.length > 0) {
-      fetchClasses();
-      setAvailableStudents([]);
-      setParent(prev => ({ ...prev, classIds: {}, studentIds: [] }));
-    } else {
-      setAvailableClasses({});
-      setAvailableStudents([]);
-      setParent(prev => ({ ...prev, classIds: {}, studentIds: [] }));
-    }
-  }, [parent.instituteTypes]);
+    const fetchClasses = async () => {
+      if (!parent.instituteTypes || parent.instituteTypes.length === 0) {
+        setAvailableClasses({});
+        setAvailableStudents([]);
+        setParent(prev => ({ ...prev, classIds: {}, studentIds: [] }));
+        return;
+      }
+
+      try {
+        setLoadingClasses(true);
+        const response = await parentApi.getClassesByTypes(parent.instituteTypes, session);
+        setAvailableClasses(response.data.classes || {});
+        setAvailableStudents([]);
+        setParent(prev => ({ ...prev, classIds: {}, studentIds: [] }));
+      } catch (error) {
+        console.error("Error fetching classes:", error);
+        toast.error(error.message || "د ټولګیو په ترلاسه کولو کې تېروتنه");
+      } finally {
+        setLoadingClasses(false);
+      }
+    };
+
+    fetchClasses();
+  }, [parent.instituteTypes, session]);
 
   // Fetch students when classes change
   useEffect(() => {
-    if (parent.instituteTypes && parent.instituteTypes.length > 0 && 
-        parent.classIds && Object.values(parent.classIds).some(id => id)) {
-      fetchStudents();
-    } else {
-      setAvailableStudents([]);
-      setParent(prev => ({ ...prev, studentIds: [] }));
-    }
-  }, [parent.classIds]);
+    const fetchStudents = async () => {
+      if (!parent.instituteTypes || parent.instituteTypes.length === 0 || 
+          !parent.classIds || !Object.values(parent.classIds).some(id => id)) {
+        setAvailableStudents([]);
+        setParent(prev => ({ ...prev, studentIds: [] }));
+        return;
+      }
 
-  const fetchClasses = async () => {
-    try {
-      setLoadingClasses(true);
-      const response = await parentApi.getClassesByTypes(parent.instituteTypes, session);
-      setAvailableClasses(response.data.classes || {});
-    } catch (error) {
-      console.error("Error fetching classes:", error);
-      toast.error(error.message || "د ټولګیو په ترلاسه کولو کې تېروتنه");
-    } finally {
-      setLoadingClasses(false);
-    }
-  };
+      try {
+        setLoadingStudents(true);
+        const response = await parentApi.getStudentsByTypesAndClasses(
+          parent.instituteTypes, 
+          parent.classIds, 
+          session
+        );
+        setAvailableStudents(response.data.students || []);
+      } catch (error) {
+        console.error("Error fetching students:", error);
+        toast.error(error.message || "د زده کوونکو په ترلاسه کولو کې تېروتنه");
+      } finally {
+        setLoadingStudents(false);
+      }
+    };
 
-  const fetchStudents = async () => {
-    try {
-      setLoadingStudents(true);
-      const response = await parentApi.getStudentsByTypesAndClasses(
-        parent.instituteTypes, 
-        parent.classIds, 
-        session
-      );
-      setAvailableStudents(response.data.students || []);
-    } catch (error) {
-      console.error("Error fetching students:", error);
-      toast.error(error.message || "د زده کوونکو په ترلاسه کولو کې تېروتنه");
-    } finally {
-      setLoadingStudents(false);
-    }
-  };
+    fetchStudents();
+  }, [parent.classIds, parent.instituteTypes, session]);
 
   const setP = (k, v) => {
     setParent((f) => ({ ...f, [k]: v }));
@@ -552,9 +555,11 @@ export default function ParentsPage() {
       />
 
       <FilterBar 
-        filters={PARENT_FILTERS} 
+        filters={PARENT_FILTERS}
+        defaultValues={{ academicYear: String(new Date().getFullYear()) }}
         onApply={(f) => { setFilters(f); setPage(1); }} 
         onClear={() => { setFilters({}); setPage(1); }} 
+      />
       />
 
       <AgGridTable
@@ -564,7 +569,7 @@ export default function ParentsPage() {
         emptyText="هیڅ والد ونه موندل شو"
         searchPlaceholder="د والد نوم، ټېلیفون..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 50}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}

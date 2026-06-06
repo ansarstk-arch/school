@@ -35,13 +35,16 @@ export const staff = sqliteTable("staff", {
   salary:       real("salary"),
   address:      text("address"),
   joiningDate:  text("joining_date"),
+  academicYear: text("academic_year"), // Academic year when staff joined
   image:        text("image"),      // Profile image path
   notes:        text("notes"),
   status:       text("status").notNull().default("active"),  // active | inactive
+  userId:       integer("user_id").references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => [
   index("idx_staff_position").on(t.position),
   index("idx_staff_status").on(t.status),
+  index("idx_staff_academic_year").on(t.academicYear),
 ]);
 
 // ─── TEACHERS ──────────────────────────────────────────────────────────────────
@@ -60,8 +63,13 @@ export const teachers = sqliteTable("teachers", {
   joiningDate:  text("joining_date"),
   image:        text("image"),      // Profile image path
   notes:        text("notes"),
+  status:       text("status").notNull().default("active"), // active | inactive
+  userId:       integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  assignedClasses: text("assigned_classes").notNull().default("[]"), // JSON array of class IDs
   ...timestamps,
-});
+}, (t) => [
+  index("idx_teachers_status").on(t.status),
+]);
 
 // ─── TEACHER APPLICANTS ────────────────────────────────────────────────────────
 
@@ -123,27 +131,30 @@ export const subjectClasses = sqliteTable("subject_classes", {
 // ─── STUDENTS ──────────────────────────────────────────────────────────────────
 
 export const students = sqliteTable("students", {
-  id:               integer("id").primaryKey({ autoIncrement: true }),
-  rollNumber:       text("roll_number"),
-  fullName:         text("full_name").notNull(),
-  fatherName:       text("father_name").notNull(),
-  grandFatherName:  text("grand_father_name"),
-  gender:           text("gender").notNull().default("Male"),
-  dob:              text("dob"),
-  phone:            text("phone"),
-  emergencyContact: text("emergency_contact"),
-  address:          text("address"),
-  idCardNumber:     text("id_card_number"),
-  classId:          integer("class_id").references(() => classes.id, { onDelete: "set null" }),
-  section:          text("section"),
-  academicYear:     text("academic_year").notNull(),
-  registrationFee:  real("registration_fee"),
-  image:            text("image"),      // Profile image path
+  id:                integer("id").primaryKey({ autoIncrement: true }),
+  rollNumber:        text("roll_number"),
+  fullName:          text("full_name").notNull(),
+  fatherName:        text("father_name").notNull(),
+  grandFatherName:   text("grand_father_name"),
+  maternalUncleName: text("maternal_uncle_name"),
+  gender:            text("gender").notNull().default("Male"),
+  dob:               text("dob"),
+  phone:             text("phone"),
+  emergencyContact:  text("emergency_contact"),
+  address:           text("address"),
+  idCardNumber:      text("id_card_number"),
+  classId:           integer("class_id").references(() => classes.id, { onDelete: "set null" }),
+  section:           text("section"),
+  academicYear:      text("academic_year").notNull(),
+  registrationFee:   real("registration_fee"),
+  image:             text("image"),      // Profile image path
+  status:            text("status").notNull().default("active"), // active | inactive
   ...timestamps,
 }, (t) => [
   index("idx_students_class").on(t.classId),
   index("idx_students_year").on(t.academicYear),
   index("idx_students_name").on(t.fullName),
+  index("idx_students_status").on(t.status),
 ]);
 
 // ─── STUDENT ENROLLMENTS ───────────────────────────────────────────────────────
@@ -350,12 +361,53 @@ export const expenses = sqliteTable("expenses", {
   index("idx_expenses_period").on(t.periodType),
 ]);
 
+// ─── INVENTORY ITEMS (Stock) ───────────────────────────────────────────────────
+
+export const inventoryItems = sqliteTable("inventory_items", {
+  id:               integer("id").primaryKey({ autoIncrement: true }),
+  name:             text("name").notNull(),
+  category:         text("category"),
+  sku:              text("sku"),
+  description:      text("description"),
+  academicYear:     text("academic_year").notNull(),
+  purchasePrice:    real("purchase_price").notNull().default(0),
+  salePrice:        real("sale_price").notNull(),
+  stockQuantity:    integer("stock_quantity").notNull().default(0),
+  lowStockThreshold: integer("low_stock_threshold").notNull().default(5),
+  ...timestamps,
+}, (t) => [
+  index("idx_inventory_items_name").on(t.name),
+  index("idx_inventory_items_year").on(t.academicYear),
+  index("idx_inventory_items_stock").on(t.stockQuantity),
+  uniqueIndex("idx_inventory_items_sku_unique").on(t.sku),
+]);
+
+// ─── INVENTORY SALES ────────────────────────────────────────────────────────────
+
+export const inventorySales = sqliteTable("inventory_sales", {
+  id:           integer("id").primaryKey({ autoIncrement: true }),
+  itemId:       integer("item_id").notNull().references(() => inventoryItems.id, { onDelete: "cascade" }),
+  quantity:     integer("quantity").notNull(),
+  unitPrice:    real("unit_price").notNull(),
+  discount:     real("discount").notNull().default(0),
+  totalAmount:  real("total_amount").notNull(),
+  saleDate:     text("sale_date").notNull(),
+  academicYear: text("academic_year").notNull(),
+  soldBy:       integer("sold_by").references(() => users.id, { onDelete: "set null" }),
+  notes:        text("notes"),
+  ...timestamps,
+}, (t) => [
+  index("idx_inventory_sales_item").on(t.itemId),
+  index("idx_inventory_sales_date").on(t.saleDate),
+  index("idx_inventory_sales_year").on(t.academicYear),
+]);
+
 // ─── FEE PAYMENTS (Revenue) ────────────────────────────────────────────────────
 
 export const feePayments = sqliteTable("fee_payments", {
   id:            integer("id").primaryKey({ autoIncrement: true }),
   receiptNo:     text("receipt_no").notNull().unique(),
-  studentId:     integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  studentId:     integer("student_id").references(() => students.id, { onDelete: "set null" }),
   enrollmentType:text("enrollment_type").notNull(), // School | Center | Madrasa
   month:         text("month").notNull(),           // YYYY-MM (Shamsi)
   academicYear:  text("academic_year").notNull(),
@@ -751,8 +803,22 @@ export const promotionRulesRelations = relations(promotionRules, ({ one }) => ({
   createdBy: one(users,   { fields: [promotionRules.createdBy],   references: [users.id]   }),
 }));
 
-// ─── SMS SETTINGS ──────────────────────────────────────────────────────────────
-// SMS API configuration and credentials
+// ─── SMS ENDPOINTS ─────────────────────────────────────────────────────────────
+// Up to 3 phone gateway endpoints (complete URL with port)
+
+export const smsEndpoints = sqliteTable("sms_endpoints", {
+  id:           integer("id").primaryKey({ autoIncrement: true }),
+  slot:         integer("slot").notNull(), // 1 | 2 | 3
+  name:         text("name").notNull(),
+  apiUrl:       text("api_url"),
+  isActive:     integer("is_active", { mode: "boolean" }).notNull().default(true),
+  lastTestedAt: text("last_tested_at"),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("idx_sms_endpoints_slot").on(t.slot),
+]);
+
+// ─── SMS SETTINGS (legacy — kept for backward compatibility) ───────────────────
 
 export const smsSettings = sqliteTable("sms_settings", {
   id:              integer("id").primaryKey({ autoIncrement: true }),
@@ -802,13 +868,15 @@ export const smsLogs = sqliteTable("sms_logs", {
   studentId:       integer("student_id").references(() => students.id, { onDelete: "set null" }),
   studentName:     text("student_name"),
   institutionType: text("institution_type"), // School | Center | Madrasa
-  messageType:     text("message_type").notNull(), // Absent | Fee | ExamPass | ExamFail | Homework | Custom
+  messageType:     text("message_type").notNull(), // Absent | Present | Fee | ExamPass | ExamFail | Homework | Custom
   messageContent:  text("message_content").notNull(),
   status:          text("status").notNull().default("Pending"), // Pending | Sent | Failed
   sentAt:          text("sent_at"),
   failureReason:   text("failure_reason"),
   retryCount:      integer("retry_count").notNull().default(0),
   apiResponse:     text("api_response"), // Store API response for debugging
+  endpointId:      integer("endpoint_id").references(() => smsEndpoints.id, { onDelete: "set null" }),
+  attendanceDate:  text("attendance_date"), // YYYY-MM-DD for once-per-day tracking
   sentBy:          integer("sent_by").references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => [
@@ -817,6 +885,7 @@ export const smsLogs = sqliteTable("sms_logs", {
   index("idx_sms_logs_type").on(t.messageType),
   index("idx_sms_logs_date").on(t.createdAt),
   index("idx_sms_logs_recipient").on(t.recipientType, t.recipientId),
+  index("idx_sms_logs_student_date").on(t.studentId, t.messageType, t.attendanceDate),
 ]);
 
 // ─── PARENT SMS PREFERENCES ────────────────────────────────────────────────────

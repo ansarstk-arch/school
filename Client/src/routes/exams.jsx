@@ -85,8 +85,8 @@ export default function ExamsPage() {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 12 });
-  const [filters, setFilters] = useState({});
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
+  const [filters, setFilters] = useState({ academicYear: String(currentShamsiYear()) }); // Initialize with default year
   
   // Form state
   const [formOpen, setFormOpen] = useState(false);
@@ -112,12 +112,12 @@ export default function ExamsPage() {
   const fetchExams = async (pageNum = page, filterParams = filters) => {
     setLoading(true);
     try {
-      const params = { page: pageNum, limit: 12, ...filterParams };
+      const params = { page: pageNum, limit: 10, ...filterParams };
       const response = await examApi.getAllExams(params);
       
       if (response.success) {
         setExams(response.data.exams || []);
-        setPagination(response.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 12 });
+        setPagination(response.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 10 });
       }
     } catch (error) {
       console.error("Error fetching exams:", error);
@@ -358,24 +358,19 @@ export default function ExamsPage() {
       key: "institutionType",
       label: "د ادارې ډول",
       type: "select",
-      options: [
-        { value: "", label: "ټول" },
-        ...INSTITUTION_TYPES.map(t => ({ value: t.value, label: t.label })),
-      ],
+      options: INSTITUTION_TYPES.map(t => ({ value: t.value, label: t.label })),
     },
     {
       key: "status",
       label: "حالت",
       type: "select",
-      options: [
-        { value: "", label: "ټول" },
-        ...STATUS_OPTIONS.map(s => ({ value: s.value, label: s.label })),
-      ],
+      options: STATUS_OPTIONS.map(s => ({ value: s.value, label: s.label })),
     },
     {
       key: "academicYear",
       label: "تعلیمي کال",
       type: "shamsiYear",
+      placeholder: "تعلیمي کال",
     },
   ];
 
@@ -421,13 +416,13 @@ export default function ExamsPage() {
       {/* Filters */}
       <FilterBar
         filters={filterConfig}
-        defaultValues={filters}
+        defaultValues={{ academicYear: String(currentShamsiYear()) }}
         onApply={(newFilters) => {
           setFilters(newFilters);
           setPage(1);
         }}
-        onClear={() => {
-          setFilters({ academicYear: String(currentShamsiYear()) });
+        onClear={(cleared) => {
+          setFilters(cleared || { academicYear: String(currentShamsiYear()) });
           setPage(1);
         }}
       />
@@ -441,7 +436,7 @@ export default function ExamsPage() {
         searchPlaceholder="د امتحان سرلیک لټون..."
         pagination={true}
         serverSidePagination={true}
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         currentPage={page}
         totalPages={pagination.totalPages}
         totalRows={pagination.total}

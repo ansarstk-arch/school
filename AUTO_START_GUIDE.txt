@@ -1,0 +1,145 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║          ⚡ AUTO-START SERVER ON WINDOWS BOOT ⚡              ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+📋 YOU HAVE TWO OPTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+✅ OPTION 1: VISIBLE MODE (See Window)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: ADD_TO_STARTUP.bat
+
+What happens:
+  • Server starts when Windows boots
+  • You'll see a minimized window in taskbar
+  • Good for monitoring server status
+  • Easy to see if server is running
+
+To enable:
+  1. Double-click: ADD_TO_STARTUP.bat
+  2. Follow instructions
+  3. Restart your PC to test
+
+To disable:
+  1. Double-click: REMOVE_FROM_STARTUP.bat
+
+
+✅ OPTION 2: SILENT MODE (Hidden, No Window)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: ADD_TO_STARTUP_SILENT.bat
+
+What happens:
+  • Server starts completely hidden
+  • No window at all
+  • Shows popup notification for 5 seconds
+  • Cleaner desktop experience
+
+To enable:
+  1. Double-click: ADD_TO_STARTUP_SILENT.bat
+  2. Follow instructions
+  3. Restart your PC to test
+
+To disable:
+  1. Double-click: REMOVE_FROM_STARTUP.bat
+
+
+🛠️ UTILITY FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CHECK_SERVER_STATUS.bat     Check if server is running
+STOP_SERVER.bat             Stop the background server
+START_SERVER.bat            Start server normally (with window)
+START_SERVER_BACKGROUND.vbs Start server hidden
+
+
+📊 HOW TO MANAGE AUTO-START SERVER:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check if running:
+  → Run: CHECK_SERVER_STATUS.bat
+  → Or check Task Manager for "node.exe"
+
+Stop the server:
+  → Run: STOP_SERVER.bat
+  → Or Task Manager > End "node.exe" task
+
+Restart the server:
+  → Run: STOP_SERVER.bat
+  → Then: START_SERVER.bat
+
+
+⚙️ RECOMMENDED SETUP FOR SCHOOL:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For dedicated server PC:
+  ✓ Use SILENT MODE (cleaner)
+  ✓ Disable Windows sleep mode
+  ✓ Set PC to auto-login (optional)
+  ✓ Server will be ready immediately after boot
+
+For shared/personal PC:
+  ✓ Use VISIBLE MODE (easier to monitor)
+  ✓ Can easily see when server is running
+  ✓ Simple to stop when not needed
+
+
+🔧 DISABLE WINDOWS SLEEP (Recommended for Server PC):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Press Windows + I (Settings)
+2. Go to: System > Power & sleep
+3. Set "When plugged in, PC goes to sleep after" → Never
+4. Set screen to turn off, but not sleep
+
+
+⚠️ IMPORTANT NOTES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Only enable auto-start on the SERVER PC (the one with database)
+✓ Server will start automatically every time Windows boots
+✓ Make sure PC is plugged in (not on battery)
+✓ First boot after enabling takes 10-15 seconds to start server
+✓ Check status with CHECK_SERVER_STATUS.bat
+
+
+🎯 TYPICAL WORKFLOW:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Morning:
+  1. Turn on server PC
+  2. Windows boots → Server starts automatically
+  3. See popup: "School Management Server Started"
+  4. Done! Everyone can now access the system
+
+Evening:
+  (Optional) Run STOP_SERVER.bat or just shut down PC
+
+
+💡 TROUBLESHOOTING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Server not starting on boot?
+  → Check startup folder has the shortcut
+  → Location: C:\Users\[YourName]\AppData\Roaming\Microsoft\
+              Windows\Start Menu\Programs\Startup
+  → Try running START_SERVER.bat manually to check for errors
+
+Can't stop the server?
+  → Run STOP_SERVER.bat as Administrator
+  → Or: Task Manager > Details tab > node.exe > End task
+
+Server starts but can't access?
+  → Run CHECK_SERVER_STATUS.bat
+  → Check Windows Firewall (see FIREWALL_SETUP.txt)
+  → Make sure you're accessing correct URL
+
+
+═══════════════════════════════════════════════════════════════════
+Perfect for schools! Server ready immediately after boot! 🎉
+═══════════════════════════════════════════════════════════════════

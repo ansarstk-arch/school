@@ -1,0 +1,15 @@
+{
+  "name": "school-management-system",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix Client",
+    "build": "npm run build --prefix Client",
+    "start": "npm run build --prefix Client && npm start --prefix backend",
+    "dev": "concurrently -k -n server,client -c green,cyan \"npm run dev --prefix backend\" \"npm run dev --prefix Client\"",
+    "server": "npm start --prefix backend",
+    "client": "npm run dev --prefix Client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

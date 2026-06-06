@@ -10,6 +10,7 @@ import {
   generateFeePDFExport 
 } from "../../utils/feeReceipt.util.js";
 import { currentShamsiYearMonth } from "../../lib/afghan-date.js";
+import { resolveInstitutionFilter, assertInstitutionAccess, getAllowedInstitutions } from "../../utils/permissions.util.js";
 
 // ─── HELPER FUNCTIONS ──────────────────────────────────────────────────────────
 
@@ -31,6 +32,73 @@ const formatPaymentRow = (payment) => ({
   paid: Number(payment.paid ?? 0),
   remaining: Number(payment.amount ?? 0) - Number(payment.paid ?? 0),
 });
+
+// Auto-generate unpaid fee records for all active students for a given month
+export const ensureMonthlyFeeRecords = async (month, academicYear) => {
+  try {
+    // Get all students with their enrollments
+    const allStudents = await db
+      .select({
+        studentId: students.id,
+        studentName: students.fullName,
+        classId: students.classId,
+        academicYear: students.academicYear,
+      })
+      .from(students)
+      .where(and(eq(students.academicYear, String(academicYear)), eq(students.status, "active")));
+
+    for (const student of allStudents) {
+      // Get student enrollments
+      const enrollments = await db
+        .select({
+          enrollmentType: studentEnrollments.enrollmentType,
+          monthlyFee: studentEnrollments.monthlyFee,
+        })
+        .from(studentEnrollments)
+        .where(eq(studentEnrollments.studentId, student.studentId));
+
+      if (enrollments.length === 0) continue;
+
+      // Check each enrollment type
+      for (const enrollment of enrollments) {
+        // Check if fee record already exists
+        const [existingFee] = await db
+          .select({ id: feePayments.id })
+          .from(feePayments)
+          .where(
+            and(
+              eq(feePayments.studentId, student.studentId),
+              eq(feePayments.month, month),
+              eq(feePayments.academicYear, String(academicYear)),
+              eq(feePayments.enrollmentType, enrollment.enrollmentType)
+            )
+          );
+
+        // If no record exists, create unpaid fee record
+        if (!existingFee && enrollment.monthlyFee > 0) {
+          const receiptNo = await generateReceiptNumber();
+          
+          await db.insert(feePayments).values({
+            receiptNo,
+            studentId: student.studentId,
+            enrollmentType: enrollment.enrollmentType,
+            month,
+            academicYear: String(academicYear),
+            amount: enrollment.monthlyFee,
+            paid: 0,
+            status: 'Unpaid',
+            date: new Date().toISOString().split('T')[0],
+            collectedBy: null,
+            notes: 'Auto-generated monthly fee',
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error ensuring monthly fee records:', error);
+    // Don't throw - this is a background operation
+  }
+};
 
 // Generate unique receipt number
 const generateReceiptNumber = async () => {
@@ -95,7 +163,7 @@ export const getFeePayments = asyncHandler(async (req, res) => {
     limit = 10, 
     search = '', 
     academicYear = '', 
-    status = '',
+    status = '', // Optional - can filter by specific status
     enrollmentType = '',
     month = '',
     startDate = '',
@@ -103,7 +171,12 @@ export const getFeePayments = asyncHandler(async (req, res) => {
   } = req.query;
 
   const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-  const pageLimit = parseInt(limit, 10) || 50;
+  const pageLimit = parseInt(limit, 10) || 10;
+  
+  // Auto-generate unpaid fee records for requested month to ensure data exists
+  if (month && academicYear) {
+    await ensureMonthlyFeeRecords(month, academicYear);
+  }
   
   // Build where conditions
   const conditions = [];
@@ -121,12 +194,21 @@ export const getFeePayments = asyncHandler(async (req, res) => {
     );
   }
   
-  if (status) {
+  // Only filter by status if it's provided
+  if (status && status.trim() !== '') {
     conditions.push(eq(feePayments.status, status));
   }
 
-  if (enrollmentType) {
-    conditions.push(eq(feePayments.enrollmentType, enrollmentType));
+  const requestedType = enrollmentType?.trim() || null;
+  const institutionScope = resolveInstitutionFilter(
+    req.user?.permissions,
+    req.user?.role,
+    requestedType
+  );
+  if (institutionScope.value) {
+    conditions.push(eq(feePayments.enrollmentType, institutionScope.value));
+  } else if (institutionScope.allowed.length < 3) {
+    conditions.push(inArray(feePayments.enrollmentType, institutionScope.allowed));
   }
 
   if (month) {
@@ -396,6 +478,10 @@ export const createFeePayment = asyncHandler(async (req, res) => {
     throw new ApiError(401, "د فیس ثبتولو لپاره لومړی ننوتل اړین دی");
   }
 
+  if (enrollmentType) {
+    assertInstitutionAccess(req.user?.permissions, req.user?.role, enrollmentType);
+  }
+
   const normalizedStudentIds = [...new Set(studentIds.map((id) => Number(id)))].filter(
     (id) => Number.isFinite(id) && id > 0
   );
@@ -459,9 +545,10 @@ export const createFeePayment = asyncHandler(async (req, res) => {
       .from(studentEnrollments)
       .where(eq(studentEnrollments.studentId, studentId));
 
+    const allowedTypes = getAllowedInstitutions(req.user?.permissions, req.user?.role);
     const applicableEnrollments = enrollmentType
       ? enrollments.filter((e) => e.enrollmentType === enrollmentType)
-      : enrollments;
+      : enrollments.filter((e) => allowedTypes.includes(e.enrollmentType));
 
     if (applicableEnrollments.length === 0) {
       const typeLabel =
@@ -562,7 +649,7 @@ export const createFeePayment = asyncHandler(async (req, res) => {
 // ─── UPDATE FEE PAYMENT ────────────────────────────────────────────────────────
 export const updateFeePayment = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { paidAmount, notes } = req.body;
+  const { paidAmount, amount, notes } = req.body;
 
   // Get existing payment
   const [existingPayment] = await db
@@ -574,27 +661,47 @@ export const updateFeePayment = asyncHandler(async (req, res) => {
     throw new ApiError(404, "د فیس پیسو معلومات ونه موندل شول");
   }
 
+  assertInstitutionAccess(
+    req.user?.permissions,
+    req.user?.role,
+    existingPayment.enrollmentType
+  );
+
+  const nextAmount =
+    amount !== undefined && amount !== null
+      ? Number(amount)
+      : Number(existingPayment.amount || 0);
+
   const nextPaidAmount =
     paidAmount !== undefined && paidAmount !== null
       ? Number(paidAmount)
       : Number(existingPayment.paid || 0);
 
+  if (!Number.isFinite(nextAmount) || nextAmount < 0) {
+    throw new ApiError(400, "د فیس مقدار باید سم عدد وي");
+  }
+
   if (!Number.isFinite(nextPaidAmount) || nextPaidAmount < 0) {
     throw new ApiError(400, "ورکړل شوی فیس باید سم عدد وي");
   }
 
+  if (nextPaidAmount > nextAmount) {
+    throw new ApiError(400, "ورکړل شوی مقدار د ټول فیس څخه زیات نشي کیدای");
+  }
+
   // Calculate new status
-  let status = 'Unpaid';
-  if (nextPaidAmount >= existingPayment.amount) {
-    status = 'Paid';
+  let status = "Unpaid";
+  if (nextPaidAmount >= nextAmount) {
+    status = "Paid";
   } else if (nextPaidAmount > 0) {
-    status = 'Partial';
+    status = "Partial";
   }
 
   // Update payment
   const [updatedPayment] = await db
     .update(feePayments)
     .set({
+      amount: nextAmount,
       paid: nextPaidAmount,
       status,
       notes: notes !== undefined ? notes : existingPayment.notes,
@@ -611,12 +718,16 @@ export const deleteFeePayment = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const [existingPayment] = await db
-    .select({ id: feePayments.id })
+    .select({ id: feePayments.id, enrollmentType: feePayments.enrollmentType })
     .from(feePayments)
     .where(eq(feePayments.id, Number(id)));
 
   if (!existingPayment) {
     throw new ApiError(404, "د فیس پیسو معلومات ونه موندل شول");
+  }
+
+  if (existingPayment.enrollmentType) {
+    assertInstitutionAccess(req.user?.permissions, req.user?.role, existingPayment.enrollmentType);
   }
 
   await db.delete(feePayments).where(eq(feePayments.id, Number(id)));
@@ -627,6 +738,12 @@ export const deleteFeePayment = asyncHandler(async (req, res) => {
 // ─── GET FEE STATISTICS ────────────────────────────────────────────────────────
 export const getFeeStatistics = asyncHandler(async (req, res) => {
   const currentMonth = req.query.month || currentShamsiYearMonth();
+  const academicYear = req.query.academicYear || currentMonth.split('-')[0];
+  
+  // Auto-generate unpaid fee records for requested month to ensure accurate statistics
+  if (currentMonth && academicYear) {
+    await ensureMonthlyFeeRecords(currentMonth, academicYear);
+  }
   
   // Get all students with their enrollments to calculate total expected fees
   const allStudents = await db

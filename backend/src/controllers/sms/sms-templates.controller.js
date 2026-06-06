@@ -53,7 +53,7 @@ export const createSmsTemplate = asyncHandler(async (req, res) => {
   if (!messagePs) throw new ApiError(400, "پښتو پیغام اړین دی");
 
   // Validate template type
-  const validTypes = ["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"];
+  const validTypes = ["Absent", "Present", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"];
   if (!validTypes.includes(templateType)) {
     throw new ApiError(400, "د کالبد ډول سم نه دی");
   }
@@ -91,7 +91,7 @@ export const updateSmsTemplate = asyncHandler(async (req, res) => {
 
   // Validate template type if provided
   if (templateType) {
-    const validTypes = ["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"];
+    const validTypes = ["Absent", "Present", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"];
     if (!validTypes.includes(templateType)) {
       throw new ApiError(400, "د کالبد ډول سم نه دی");
     }
@@ -144,6 +144,12 @@ export const getDefaultTemplates = asyncHandler(async (req, res) => {
       variables: ["parentName", "studentName", "className", "date", "institutionType"],
     },
     {
+      templateType: "Present",
+      templateName: "د حاضرۍ پیغام",
+      messagePs: "سلام {parentName}، ستاسو زوی/لور {studentName} د {className} ټولګي نن {date} اوس حاضر دی. ډیر مننه!",
+      variables: ["parentName", "studentName", "className", "date", "institutionType"],
+    },
+    {
       templateType: "Fee",
       templateName: "د فیس یادونه",
       messagePs: "سلام {parentName}، د {studentName} د {month} میاشتې فیس {amount} افغانۍ پاتې دی. مهرباني وکړئ ژر تر ژره یې ورکړئ.",
@@ -179,6 +185,12 @@ export const seedDefaultTemplates = asyncHandler(async (req, res) => {
       templateType: "Absent",
       templateName: "د غیر حاضرۍ پیغام",
       messagePs: "سلام {parentName}، ستاسو زوی/لور {studentName} د {className} ټولګي نن {date} په {institutionType} کې غیر حاضر دی. مهرباني وکړئ د خپل ماشوم په حاضرۍ پام وکړئ.",
+      variables: JSON.stringify(["parentName", "studentName", "className", "date", "institutionType"]),
+    },
+    {
+      templateType: "Present",
+      templateName: "د حاضرۍ پیغام",
+      messagePs: "سلام {parentName}، ستاسو زوی/لور {studentName} د {className} ټولګي نن {date} اوس حاضر دی. ډیر مننه!",
       variables: JSON.stringify(["parentName", "studentName", "className", "date", "institutionType"]),
     },
     {

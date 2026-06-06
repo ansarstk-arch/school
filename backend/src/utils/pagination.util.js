@@ -2,7 +2,7 @@
  * Shared server-side pagination helpers for list endpoints.
  */
 
-export const DEFAULT_PAGE_LIMIT = 12;
+export const DEFAULT_PAGE_LIMIT = 10;
 export const MAX_PAGE_LIMIT = 100;
 
 export function parsePaginationQuery(query = {}, defaultLimit = DEFAULT_PAGE_LIMIT) {

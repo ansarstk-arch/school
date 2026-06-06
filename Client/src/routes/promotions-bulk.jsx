@@ -360,7 +360,7 @@ export default function BulkPromotionPage() {
               rowData={filterEligible ? students.filter((s) => s.eligible) : students}
               loading={loading}
               clientSidePagination
-              pageSize={12}
+              pageSize={10}
               rowSelection="multiple"
               suppressRowClickSelection={true}
               onSelectionChanged={(params) => {

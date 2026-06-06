@@ -28,8 +28,6 @@ export const getAllPromotions = asyncHandler(async (req, res) => {
     toAcademicYear,
     promotionStatus,
     promotionType,
-    dateFrom,
-    dateTo,
     search,
     page = 1,
     limit = 12,
@@ -45,9 +43,6 @@ export const getAllPromotions = asyncHandler(async (req, res) => {
   if (toAcademicYear) conditions.push(eq(studentPromotions.toAcademicYear, toAcademicYear));
   if (promotionStatus) conditions.push(eq(studentPromotions.promotionStatus, promotionStatus));
   if (promotionType) conditions.push(eq(studentPromotions.promotionType, promotionType));
-  if (dateFrom) conditions.push(sql`${studentPromotions.promotionDate} >= ${dateFrom}`);
-  if (dateTo) conditions.push(sql`${studentPromotions.promotionDate} <= ${dateTo}`);
-
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
     conditions.push(like(students.fullName, q));
@@ -339,18 +334,20 @@ export const promoteWholeClass = asyncHandler(async (req, res) => {
       // Determine promotion status
       const promotionStatus = eligibility.eligible ? "Promoted" : "Repeated";
       const targetClassId = eligibility.eligible ? Number(toClassId) : Number(fromClassId);
+      const targetSection = eligibility.eligible ? toClass.section : fromClass.section;
+      const targetInstitutionType = eligibility.eligible ? toClass.type : fromClass.type;
 
       // Execute promotion
       await executePromotion({
         studentId: student.id,
         fromClassId: Number(fromClassId),
-        fromSection: student.section,
+        fromSection: fromClass.section,
         fromAcademicYear: fromClass.academicYear,
         fromInstitutionType: fromClass.type,
         toClassId: targetClassId,
-        toSection: eligibility.eligible ? toClass.section : fromClass.section,
+        toSection: targetSection,
         toAcademicYear,
-        toInstitutionType: fromClass.type,
+        toInstitutionType: targetInstitutionType,
         promotionType: "ClassPromotion",
         promotionStatus,
         promotionDate: new Date().toISOString().split("T")[0],

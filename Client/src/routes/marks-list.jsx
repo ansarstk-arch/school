@@ -41,7 +41,7 @@ export default function MarksListPage() {
   const [marks, setMarks] = useState([]);
   const [listLoading, setListLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
   const [listFilters, setListFilters] = useState({ academicYear: session || String(currentShamsiYear()) });
   
   // View/Edit/Delete modals
@@ -70,13 +70,13 @@ export default function MarksListPage() {
       try {
         const res = await marksApi.getAllMarks({
           page: pageNum,
-          limit: 12,
+          limit: 10,
           ...f,
         });
         if (res.success) {
           setMarks(res.data.marks || []);
           setPagination(
-            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 12 }
+            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 10 }
           );
         }
       } catch (e) {
@@ -240,7 +240,13 @@ export default function MarksListPage() {
   // Filter definitions
   const filterDefs = useMemo(
     () => [
-      { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear" },
+      { key: "search", label: "لټون", type: "input", placeholder: "زده کوونکی، امتحان، مضمون..." },
+      {
+        key: "institutionType",
+        label: "اداره",
+        type: "select",
+        options: TYPES,
+      },
       {
         key: "examId",
         label: "امتحان",
@@ -249,12 +255,7 @@ export default function MarksListPage() {
           value: String(e.id),
           label: e.examTitle,
         })),
-      },
-      {
-        key: "institutionType",
-        label: "اداره",
-        type: "select",
-        options: TYPES,
+        disabled: !listFilters.institutionType,
       },
       {
         key: "classId",
@@ -264,6 +265,7 @@ export default function MarksListPage() {
           value: String(c.id),
           label: `${c.name}${c.section ? ` (${c.section})` : ""}`,
         })),
+        disabled: !listFilters.examId,
       },
       {
         key: "status",
@@ -271,9 +273,9 @@ export default function MarksListPage() {
         type: "select",
         options: STATUSES.map(s => ({ value: s.value, label: s.label })),
       },
-      { key: "search", label: "لټون", type: "input", placeholder: "زده کوونکی، امتحان، مضمون..." },
+      { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear" },
     ],
-    [listLookup.exams, listLookup.classes]
+    [listLookup.exams, listLookup.classes, listFilters.institutionType, listFilters.examId]
   );
 
   return (
@@ -292,8 +294,26 @@ export default function MarksListPage() {
       <FilterBar
         filters={filterDefs}
         defaultValues={{ academicYear: session || String(currentShamsiYear()) }}
-        onApply={(v) => {
-          setListFilters(v);
+        onApply={(newFilters) => {
+          // Handle cascading: when type changes, reset exam and class
+          if (newFilters.institutionType !== listFilters.institutionType) {
+            setListFilters({ 
+              ...newFilters, 
+              examId: "", 
+              classId: "" 
+            });
+          }
+          // When exam changes, reset class
+          else if (newFilters.examId !== listFilters.examId) {
+            setListFilters({ 
+              ...newFilters, 
+              classId: "" 
+            });
+          }
+          // Normal update
+          else {
+            setListFilters(newFilters);
+          }
           setPage(1);
         }}
         onClear={() => {
@@ -309,7 +329,7 @@ export default function MarksListPage() {
         loading={listLoading}
         emptyText="هیڅ نمرې ونه موندل شوې"
         serverSidePagination
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}

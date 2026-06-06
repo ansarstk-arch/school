@@ -26,6 +26,7 @@ import {
 import { getAllTeachers } from "@/data/teacherApi";
 import { getAllStaff } from "@/data/staffApi";
 import { getAllAttendance } from "@/data/attendanceApi";
+import { currentShamsiYear } from "@/lib/afghan-date";
 
 const TODAY = new Date().toISOString().slice(0, 10);
 const CURRENT_MONTH = TODAY.slice(0, 7);
@@ -56,10 +57,12 @@ const SALARY_FILTERS = [
     { value: "Teacher", label: "ښوونکی" },
     { value: "Staff", label: "کارمند" },
   ]},
-  { key: "month", label: "میاشت", type: "shamsiMonth" },
+  { key: "month", label: "میاشت او کال", type: "shamsiMonth" },
   { key: "paymentStatus", label: "د تادیې حالت", type: "select", options: PAYMENT_STATUS },
 ];
-const SALARY_DEFAULTS = { month: CURRENT_MONTH };
+const SALARY_DEFAULTS = { 
+  month: CURRENT_MONTH
+};
 
 const PAYROLL_TABS = [
   { id: "salaries", label: "معاشونه", icon: DollarSign },
@@ -254,6 +257,10 @@ export default function SalariesPage() {
   useEffect(() => {
     if (activeTab !== "salaries") return;
     const params = { ...filters, page, limit: pagination.limit, sortBy, sortDir };
+    // Extract year from month (YYYY-MM) for academicYear
+    if (filters.month) {
+      params.academicYear = filters.month.split('-')[0];
+    }
     fetchSalaries(params);
   }, [activeTab, filters, page, sortBy, sortDir, fetchSalaries, pagination.limit]);
 

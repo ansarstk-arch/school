@@ -1,0 +1,53 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║          🔥 WINDOWS FIREWALL SETUP (If Needed) 🔥             ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+⚠️ ONLY DO THIS IF OTHER DEVICES CAN'T CONNECT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+If phones/tablets can't access the system, you may need to allow
+port 3000 through Windows Firewall.
+
+
+📋 STEP-BY-STEP INSTRUCTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Press Windows Key + R
+2. Type: wf.msc
+3. Press Enter
+
+4. Click "Inbound Rules" (left side)
+5. Click "New Rule..." (right side)
+
+6. Select "Port" → Click Next
+7. Select "TCP" → Type "3000" → Click Next
+8. Select "Allow the connection" → Click Next
+9. Check all boxes (Domain, Private, Public) → Click Next
+10. Name: "School Management System" → Click Finish
+
+11. Done! Now try connecting from other devices
+
+
+🔒 SECURITY NOTE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This only allows access on your local WiFi network.
+It's safe for school use.
+
+
+✅ ALTERNATIVE: Simple Command (Run as Administrator)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Right-click on Command Prompt → Run as Administrator
+2. Copy and paste this command:
+
+netsh advfirewall firewall add rule name="School Management System" dir=in action=allow protocol=TCP localport=3000
+
+3. Press Enter
+4. Done!
+
+
+═══════════════════════════════════════════════════════════════════

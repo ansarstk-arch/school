@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, Pencil, Trash2, Eye, SlidersHorizontal, X } from "lucide-react";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
+import { FilterBar } from "@/components/erp/FilterBar";
 import { currentShamsiYear } from "@/lib/afghan-date";
 import { getAllClasses, createClass, updateClass, deleteClass, getTeachersByType } from "@/data/classApi";
 import { exportClassesToExcel } from "@/utils/excelExport";
@@ -76,92 +77,16 @@ function validate(f) {
   return errors;
 }
 
-// ─── Inline filter bar with ShamsiYearPicker for the year field ───────────────
-function ClassFilterBar({ onApply, onClear }) {
-  const [name, setName]               = useState("");
-  const [type, setType]               = useState("");
-  const [academicYear, setAcademicYear] = useState(ACTIVE_YEAR);
-  const [active, setActive]           = useState(true);
-
-  // Fire default filter on mount
-  useEffect(() => { onApply({ academicYear: ACTIVE_YEAR }); }, []); // eslint-disable-line
-
-  const hasAny = name || type || academicYear;
-
-  const apply = () => {
-    setActive(true);
-    onApply({ name: name || undefined, type: type || undefined, academicYear: academicYear || undefined });
-  };
-
-  const clear = () => {
-    setName(""); setType(""); setAcademicYear(""); setActive(false);
-    onClear();
-  };
-
-  return (
-    <div className={`bg-card border rounded-md p-3 flex items-center gap-2 flex-wrap transition-colors ${active && hasAny ? "border-primary/40" : "border-border"}`}>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">فلټر</span>
-      </div>
-      <div className="w-px h-4 bg-border shrink-0" />
-
-      {/* Name */}
-      <div className="flex-1 min-w-[130px]">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="د ټولګي نوم لټون..."
-          className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring w-full"
-        />
-      </div>
-
-      {/* Type */}
-      <div className="flex-1 min-w-[130px]">
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring w-full"
-        >
-          <option value="">ډول</option>
-          <option value="School">ښوونځی</option>
-          <option value="Center">مرکز</option>
-          <option value="Madrasa">مدرسه</option>
-        </select>
-      </div>
-
-      {/* Shamsi Year Picker */}
-      <div className="flex-1 min-w-[150px]">
-        <ShamsiYearPicker
-          value={academicYear}
-          onChange={setAcademicYear}
-          placeholder="تعلیمي کال"
-        />
-      </div>
-
-      <div className="flex items-center gap-1.5 mr-auto">
-        <button
-          onClick={apply}
-          className="text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 hover:opacity-90"
-        >
-          فلټر کول
-        </button>
-        {hasAny && (
-          <button
-            onClick={clear}
-            className="text-xs border border-input rounded px-2.5 py-1.5 hover:bg-muted flex items-center gap-1 text-muted-foreground"
-          >
-            <X className="size-3" /> پاکول
-          </button>
-        )}
-      </div>
-
-      {active && hasAny && (
-        <span className="text-[10px] text-primary font-medium">فلټر فعال دی</span>
-      )}
-    </div>
-  );
-}
+// ─── Filter definitions ────────────────────────────────────────────────────────
+const CLASS_FILTERS = [
+  { key: "name", label: "د ټولګي نوم", type: "input", placeholder: "د ټولګي نوم..." },
+  { key: "type", label: "ډول", type: "select", options: [
+    { value: "School", label: "ښوونځی" },
+    { value: "Center", label: "مرکز" },
+    { value: "Madrasa", label: "مدرسه" },
+  ]},
+  { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
+];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ClassesPage() {
@@ -379,10 +304,12 @@ export default function ClassesPage() {
         }
       />
 
-      {/* Custom filter bar with ShamsiYearPicker */}
-      <ClassFilterBar
+      {/* Filter bar */}
+      <FilterBar
+        filters={CLASS_FILTERS}
+        defaultValues={{ academicYear: ACTIVE_YEAR }}
         onApply={(vals) => setFilters(vals)}
-        onClear={() => setFilters({})}
+        onClear={() => setFilters({ academicYear: ACTIVE_YEAR })}
       />
 
       <AgGridTable
@@ -392,7 +319,7 @@ export default function ClassesPage() {
         emptyText="هیڅ ټولګی ونه موندل شو"
         searchPlaceholder="د ټولګي نوم، نهګران..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 50}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={pagination.page || 1}
         totalPages={pagination.totalPages}

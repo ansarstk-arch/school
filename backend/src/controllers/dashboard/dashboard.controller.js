@@ -3,10 +3,19 @@ import { asyncHandler } from "../../utils/AsyncHandler.util.js";
 import db from "../../configs/db/db.config.js";
 import { 
   students, teachers, staff, classes, subjects, attendance, 
-  expenses, feePayments, exams, users, studentEnrollments, salaries 
+  expenses, feePayments, exams, users, studentEnrollments, salaries, inventoryItems, inventorySales
 } from "../../db/schema.js";
 import { getCurrentAfghanDate } from "../../utils/dateHandler.util.js";
 import { sumSalariesFromRows } from "../../utils/dashboardSalary.util.js";
+import {
+  getCurrentShamsiMonthRange,
+  getCurrentShamsiYearRange,
+  getLastNShamsiMonths,
+  getInstituteTypeLabel,
+  currentShamsiYear,
+  SH_MONTHS,
+  shamsiMonthToGregorianRange,
+} from "../../utils/shamsiDate.util.js";
 
 // Helper function to get date ranges
 let hasExpensesPeriodTypeColumnCache = null;
@@ -25,44 +34,13 @@ const hasExpensesPeriodTypeColumn = async () => {
 
 const getDateRanges = (yearOverride) => {
   const today = getCurrentAfghanDate();
-  const [todayYearStr, todayMonthStr] = String(today).split("-");
-  const currentYear = Number(yearOverride) || Number(todayYearStr);
-  const currentMonth = Number(todayMonthStr || "1");
-  
-  const monthStart = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
-  const monthEnd = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-31`;
-  const yearStart = `${currentYear}-01-01`;
-  const yearEnd = `${currentYear}-12-31`;
-  
-  return { today, monthStart, monthEnd, yearStart, yearEnd, currentYear };
+  const { monthKey, monthStart, monthEnd } = getCurrentShamsiMonthRange();
+  const { yearStart, yearEnd, jy } = getCurrentShamsiYearRange(yearOverride);
+  const currentYear = Number(yearOverride) || jy || currentShamsiYear();
+  return { today, monthStart, monthEnd, monthKey, yearStart, yearEnd, currentYear };
 };
 
-// Helper function to get last N months data
-const getLastNMonths = (n) => {
-  const months = [];
-  const now = new Date();
-  
-  for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const monthKey = `${year}-${month.toString().padStart(2, '0')}`;
-    
-    const afghanMonths = [
-      'وری', 'غویی', 'غبرګولی', 'چنګاښ', 'زمری', 'وږی',
-      'تله', 'لړم', 'لیندۍ', 'مرغومی', 'سلواغه', 'کب'
-    ];
-    
-    months.push({
-      key: monthKey,
-      name: afghanMonths[month - 1],
-      year,
-      month
-    });
-  }
-  
-  return months;
-};
+const activeStudentCondition = eq(students.status, "active");
 
 // Helper to normalize type parameter
 const normalizeType = (type) => {
@@ -82,23 +60,16 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
   const year = Number(req.query.year);
-  const { today, monthStart, monthEnd, yearStart, yearEnd, currentYear } = getDateRanges(year);
+  const { today, monthStart, monthEnd, monthKey, yearStart, yearEnd, currentYear } = getDateRanges(year);
   const academicYear = String(currentYear);
 
   let responseData = {};
 
-  const hasPeriodType = await hasExpensesPeriodTypeColumn();
-  const expensesAggregation = hasPeriodType
-    ? db.select({
-        daily: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'daily' AND ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
-        monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'monthly' AND ${expenses.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-        yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'yearly' AND ${expenses.date} >= ${yearStart} THEN ${expenses.amount} ELSE 0 END), 0)`,
-      }).from(expenses)
-    : db.select({
-        daily: sql`COALESCE(SUM(CASE WHEN ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
-        monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-        yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} BETWEEN ${yearStart} AND ${yearEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-      }).from(expenses);
+  const expensesAggregation = db.select({
+    daily: sql`COALESCE(SUM(CASE WHEN ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
+    monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} >= ${monthStart} AND ${expenses.date} <= ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
+    yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} >= ${yearStart} AND ${expenses.date} <= ${yearEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
+  }).from(expenses);
 
   if (type === "all") {
     // ─── ALL VIEW - OPTIMIZED WITH SINGLE QUERY WHERE POSSIBLE ──────────────────
@@ -111,14 +82,16 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       feePaymentsResult,
       expensesResult,
       paidSalariesResult,
+      inventoryRevenueResult,
       unpaidFeesResult,
       staffResult,
       attendanceResult,
+      lowStockItemsResult,
       staffSalaryRows,
       teacherSalaryRows
     ] = await Promise.all([
       // Single query for total students
-      db.select({ count: count() }).from(students).where(eq(students.academicYear, academicYear)),
+      db.select({ count: count() }).from(students).where(and(eq(students.academicYear, academicYear), activeStudentCondition)),
       
       // Single query for enrollment breakdown
       db.select({
@@ -127,18 +100,18 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       })
         .from(studentEnrollments)
         .innerJoin(students, eq(studentEnrollments.studentId, students.id))
-        .where(eq(students.academicYear, academicYear))
+        .where(and(eq(students.academicYear, academicYear), activeStudentCondition))
         .groupBy(studentEnrollments.enrollmentType),
       
-      db.select({ count: count() }).from(teachers),
+      db.select({ count: count() }).from(teachers).where(eq(teachers.status, "active")),
       db.select({ count: count() }).from(classes).where(eq(classes.academicYear, academicYear)),
       db.select({ count: count() }).from(subjects).where(eq(subjects.academicYear, academicYear)),
       
       // Fee payments (income)
       db.select({
-        monthly: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${feePayments.paid} ELSE 0 END), 0)`,
+        monthly: sql`COALESCE(SUM(CASE WHEN (${feePayments.month} = ${monthKey} OR (${feePayments.date} >= ${monthStart} AND ${feePayments.date} <= ${monthEnd})) THEN ${feePayments.paid} ELSE 0 END), 0)`,
         daily: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} = ${today} THEN ${feePayments.paid} ELSE 0 END), 0)`,
-        yearly: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} BETWEEN ${yearStart} AND ${yearEnd} THEN ${feePayments.paid} ELSE 0 END), 0)`
+        yearly: sql`COALESCE(SUM(CASE WHEN (${feePayments.date} >= ${yearStart} AND ${feePayments.date} <= ${yearEnd}) THEN ${feePayments.paid} ELSE 0 END), 0)`
       }).from(feePayments).where(eq(feePayments.academicYear, academicYear)),
       
       // Expenses by period type
@@ -148,6 +121,13 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       db.select({ 
         monthly: sql`COALESCE(SUM(CASE WHEN ${salaries.month} BETWEEN ${monthStart.substring(0, 7)} AND ${monthEnd.substring(0, 7)} THEN ${salaries.paidAmount} ELSE 0 END), 0)`
       }).from(salaries),
+
+      // Inventory sales (only for all dashboard revenue)
+      db.select({
+        monthly: sql`COALESCE(SUM(CASE WHEN ${inventorySales.saleDate} BETWEEN ${monthStart} AND ${monthEnd} THEN ${inventorySales.totalAmount} ELSE 0 END), 0)`,
+        daily: sql`COALESCE(SUM(CASE WHEN ${inventorySales.saleDate} = ${today} THEN ${inventorySales.totalAmount} ELSE 0 END), 0)`,
+        yearly: sql`COALESCE(SUM(CASE WHEN ${inventorySales.saleDate} BETWEEN ${yearStart} AND ${yearEnd} THEN ${inventorySales.totalAmount} ELSE 0 END), 0)`,
+      }).from(inventorySales).where(eq(inventorySales.academicYear, academicYear)),
       
       db.select({ count: count() }).from(feePayments).where(and(eq(feePayments.status, "Unpaid"), eq(feePayments.academicYear, academicYear))),
       db.select({ count: count() }).from(staff).where(eq(staff.status, "active")),
@@ -162,6 +142,8 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
           eq(attendance.attendanceDate, today), 
           eq(attendance.attendanceType, "Student")
         )),
+
+      db.select({ count: count() }).from(inventoryItems).where(and(eq(inventoryItems.academicYear, academicYear), sql`${inventoryItems.stockQuantity} <= ${inventoryItems.lowStockThreshold}`)),
       
       db.select({ salary: staff.salary, staffType: staff.staffType })
         .from(staff)
@@ -183,15 +165,23 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
     const totalStaffSalary = sumSalariesFromRows(staffSalaryRows, "staffType", "all");
     const totalTeachersSalary = sumSalariesFromRows(teacherSalaryRows, "teacherType", "all");
     
-    // Calculate accurate revenue: Fee Payments - Expenses - Paid Salaries
+    // Calculate PURE REVENUE (total income from fees and inventory)
     const monthlyFeeIncome = Number(feePaymentsResult[0]?.monthly || 0);
     const dailyFeeIncome = Number(feePaymentsResult[0]?.daily || 0);
+    const yearlyFeeIncome = Number(feePaymentsResult[0]?.yearly || 0);
+    const monthlyInventoryRevenue = Number(inventoryRevenueResult[0]?.monthly || 0);
+    const dailyInventoryRevenue = Number(inventoryRevenueResult[0]?.daily || 0);
+    const yearlyInventoryRevenue = Number(inventoryRevenueResult[0]?.yearly || 0);
+    
+    // Calculate EXPENSES (pure expenses from expenses table)
     const monthlyExpenses = Number(expensesResult[0]?.monthly || 0);
     const dailyExpenses = Number(expensesResult[0]?.daily || 0);
-    const monthlyPaidSalaries = Number(paidSalariesResult[0]?.monthly || 0);
+    const yearlyExpenses = Number(expensesResult[0]?.yearly || 0);
     
-    const monthlyRevenue = monthlyFeeIncome - monthlyExpenses - monthlyPaidSalaries;
-    const dailyRevenue = dailyFeeIncome - dailyExpenses;
+    // Revenue is PURE INCOME (fees + inventory sales)
+    const monthlyRevenue = monthlyFeeIncome + monthlyInventoryRevenue;
+    const dailyRevenue = dailyFeeIncome + dailyInventoryRevenue;
+    const yearlyRevenue = yearlyFeeIncome + yearlyInventoryRevenue;
 
     responseData = {
       students: {
@@ -204,16 +194,18 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       classes: Number(classResult[0]?.count || 0),
       subjects: Number(subjectResult[0]?.count || 0),
       revenue: {
-        monthly: monthlyRevenue,
         daily: dailyRevenue,
-        yearly: Number(feePaymentsResult[0]?.yearly || 0) - Number(expensesResult[0]?.yearly || 0) - Number(paidSalariesResult[0]?.monthly || 0) * 12,
+        monthly: monthlyRevenue,
+        yearly: yearlyRevenue,
+        inventory: monthlyInventoryRevenue, // Separate inventory revenue for card display
       },
       expenses: {
         daily: dailyExpenses,
         monthly: monthlyExpenses,
-        yearly: Number(expensesResult[0]?.yearly || 0),
+        yearly: yearlyExpenses,
       },
       unpaidFees: Number(unpaidFeesResult[0]?.count || 0),
+      lowStockItems: Number(lowStockItemsResult[0]?.count || 0),
       staff: Number(staffResult[0]?.count || 0),
       attendancePercentage: attTotal > 0 ? Math.round((attPresent / attTotal) * 100) : 0,
       salaries: {
@@ -243,37 +235,28 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       db.select({ count: sql`COUNT(DISTINCT ${studentEnrollments.studentId})` })
         .from(studentEnrollments)
         .innerJoin(students, eq(studentEnrollments.studentId, students.id))
-        .where(and(eq(studentEnrollments.enrollmentType, type), eq(students.academicYear, academicYear))),
+        .where(and(eq(studentEnrollments.enrollmentType, type), eq(students.academicYear, academicYear), activeStudentCondition)),
       
-      db.select({ count: count() }).from(teachers).where(like(teachers.teacherType, `%"${type}"%`)),
+      db.select({ count: count() }).from(teachers).where(and(like(teachers.teacherType, `%"${type}"%`), eq(teachers.status, "active"))),
       db.select({ count: count() }).from(classes).where(and(eq(classes.type, type), eq(classes.academicYear, academicYear))),
       db.select({ count: count() }).from(subjects).where(and(eq(subjects.type, type), eq(subjects.academicYear, academicYear))),
       
       // Fee payments (income)
       db.select({
-        monthly: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${feePayments.paid} ELSE 0 END), 0)`,
+        monthly: sql`COALESCE(SUM(CASE WHEN (${feePayments.month} = ${monthKey} OR (${feePayments.date} >= ${monthStart} AND ${feePayments.date} <= ${monthEnd})) THEN ${feePayments.paid} ELSE 0 END), 0)`,
         daily: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} = ${today} THEN ${feePayments.paid} ELSE 0 END), 0)`,
-        yearly: sql`COALESCE(SUM(CASE WHEN ${feePayments.date} BETWEEN ${yearStart} AND ${yearEnd} THEN ${feePayments.paid} ELSE 0 END), 0)`
+        yearly: sql`COALESCE(SUM(CASE WHEN (${feePayments.date} >= ${yearStart} AND ${feePayments.date} <= ${yearEnd}) THEN ${feePayments.paid} ELSE 0 END), 0)`
       })
         .from(feePayments)
         .where(and(eq(feePayments.enrollmentType, type), eq(feePayments.academicYear, academicYear))),
       
-      // Expenses by period type (with compatibility for databases without period_type)
-      (hasPeriodType
-        ? db.select({
-            daily: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'daily' AND ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
-            monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'monthly' AND ${expenses.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-            yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.periodType} = 'yearly' AND ${expenses.date} >= ${yearStart} THEN ${expenses.amount} ELSE 0 END), 0)`,
-          })
-            .from(expenses)
-            .where(eq(expenses.instituteType, type))
-        : db.select({
-            daily: sql`COALESCE(SUM(CASE WHEN ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
-            monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} BETWEEN ${monthStart} AND ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-            yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} BETWEEN ${yearStart} AND ${yearEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
-          })
-            .from(expenses)
-            .where(eq(expenses.instituteType, type))),
+      db.select({
+        daily: sql`COALESCE(SUM(CASE WHEN ${expenses.date} = ${today} THEN ${expenses.amount} ELSE 0 END), 0)`,
+        monthly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} >= ${monthStart} AND ${expenses.date} <= ${monthEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
+        yearly: sql`COALESCE(SUM(CASE WHEN ${expenses.date} >= ${yearStart} AND ${expenses.date} <= ${yearEnd} THEN ${expenses.amount} ELSE 0 END), 0)`,
+      })
+        .from(expenses)
+        .where(eq(expenses.instituteType, type)),
       
       // Paid salaries for specific type (filter by staff/teacher type in JSON array)
       db.select({ 
@@ -322,15 +305,20 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
     const totalStaffSalary = sumSalariesFromRows(staffSalaryRows, "staffType", type);
     const totalTeachersSalary = sumSalariesFromRows(teacherSalaryRows, "teacherType", type);
     
-    // Calculate accurate revenue: Fee Payments - Expenses - Paid Salaries
+    // Calculate PURE REVENUE (total income from fees)
     const monthlyFeeIncome = Number(feePaymentsResult[0]?.monthly || 0);
     const dailyFeeIncome = Number(feePaymentsResult[0]?.daily || 0);
+    const yearlyFeeIncome = Number(feePaymentsResult[0]?.yearly || 0);
+    
+    // Calculate EXPENSES (pure expenses from expenses table)
     const monthlyExpenses = Number(expensesResult[0]?.monthly || 0);
     const dailyExpenses = Number(expensesResult[0]?.daily || 0);
-    const monthlyPaidSalaries = Number(paidSalariesResult[0]?.monthly || 0);
+    const yearlyExpenses = Number(expensesResult[0]?.yearly || 0);
     
-    const monthlyRevenue = monthlyFeeIncome - monthlyExpenses - monthlyPaidSalaries;
-    const dailyRevenue = dailyFeeIncome - dailyExpenses;
+    // Revenue is PURE INCOME (fees only for type-specific views)
+    const monthlyRevenue = monthlyFeeIncome;
+    const dailyRevenue = dailyFeeIncome;
+    const yearlyRevenue = yearlyFeeIncome;
 
     responseData = {
       students: Number(studentsResult[0]?.count || 0),
@@ -338,14 +326,15 @@ export const getDashboardCards = asyncHandler(async (req, res) => {
       classes: Number(classResult[0]?.count || 0),
       subjects: Number(subjectResult[0]?.count || 0),
       revenue: {
-        monthly: monthlyRevenue,
         daily: dailyRevenue,
-        yearly: Number(feePaymentsResult[0]?.yearly || 0) - Number(expensesResult[0]?.yearly || 0) - Number(paidSalariesResult[0]?.monthly || 0) * 12,
+        monthly: monthlyRevenue,
+        yearly: yearlyRevenue,
+        inventory: 0, // Inventory is not type-specific, only shown in "all" view
       },
       expenses: {
         daily: dailyExpenses,
         monthly: monthlyExpenses,
-        yearly: Number(expensesResult[0]?.yearly || 0),
+        yearly: yearlyExpenses,
       },
       unpaidFees: Number(unpaidFeesResult[0]?.count || 0),
       staff: Number(staffResult[0]?.count || 0),
@@ -374,14 +363,12 @@ export const getRevenueExpenseChart = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
   const months = parseInt(req.query.months) || 5;
-  const monthsData = getLastNMonths(months);
-
-  // OPTIMIZED: Single combined query instead of 2*N queries
-  const monthRanges = monthsData.map(m => {
-    const monthStart = `${m.year}-${m.month.toString().padStart(2, '0')}-01`;
-    const monthEnd = new Date(m.year, m.month, 0).toISOString().split('T')[0];
-    return { monthStart, monthEnd, name: m.name };
-  });
+  const monthRanges = getLastNShamsiMonths(months).map((m) => ({
+    monthStart: m.monthStart,
+    monthEnd: m.monthEnd,
+    name: m.name,
+    monthKey: m.monthKey,
+  }));
 
   let chartData;
 
@@ -447,13 +434,12 @@ export const getFinancialSummaryChart = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
   const months = parseInt(req.query.months) || 12;
-  const monthsData = getLastNMonths(months);
-  const monthRanges = monthsData.map((m) => {
-    const monthStart = `${m.year}-${m.month.toString().padStart(2, "0")}-01`;
-    const monthEnd = new Date(m.year, m.month, 0).toISOString().split("T")[0];
-    const monthKey = `${m.year}-${m.month.toString().padStart(2, "0")}`;
-    return { ...m, monthStart, monthEnd, monthKey };
-  });
+  const monthRanges = getLastNShamsiMonths(months).map((m) => ({
+    monthStart: m.monthStart,
+    monthEnd: m.monthEnd,
+    monthKey: m.monthKey,
+    name: m.name,
+  }));
 
   const [revenueResult, expenseResult, salaryResult] = await Promise.all([
     db.select({
@@ -499,14 +485,12 @@ export const getFinancialSummaryChart = asyncHandler(async (req, res) => {
 export const getYearlyStudentComparisonChart = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
-  const year = Number(req.query.year) || new Date().getFullYear();
+  const year = Number(req.query.year) || currentShamsiYear();
   const previousYear = year - 1;
-  const monthNames = ["وری", "غویی", "غبرګولی", "چنګاښ", "زمری", "وږی", "تله", "لړم", "لیندۍ", "مرغومی", "سلواغه", "کب"];
-
   const rows = [];
   for (let month = 1; month <= 12; month++) {
-    const currentEnd = new Date(year, month, 0).toISOString().split("T")[0];
-    const previousEnd = new Date(previousYear, month, 0).toISOString().split("T")[0];
+    const currentEnd = shamsiMonthToGregorianRange(year, month).end;
+    const previousEnd = shamsiMonthToGregorianRange(previousYear, month).end;
 
     const [currentResult, previousResult] = await Promise.all([
       type === "all"
@@ -526,7 +510,7 @@ export const getYearlyStudentComparisonChart = asyncHandler(async (req, res) => 
     ]);
 
     rows.push({
-      month: monthNames[month - 1],
+      month: SH_MONTHS[month - 1],
       thisYear: Number(currentResult[0]?.count || 0),
       lastYear: Number(previousResult[0]?.count || 0),
     });
@@ -602,12 +586,8 @@ export const getStudentGrowthChart = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
   const monthsCount = parseInt(req.query.months) || 6;
-  const monthsData = getLastNMonths(monthsCount);
-
-  // OPTIMIZED: Single query with CASE statements instead of N queries
-  const monthEndDates = monthsData.map(m => 
-    new Date(m.year, m.month, 0).toISOString().split('T')[0]
-  );
+  const monthsData = getLastNShamsiMonths(monthsCount);
+  const monthEndDates = monthsData.map((m) => m.monthEnd);
 
   let result;
   
@@ -659,14 +639,11 @@ export const getMonthlyExpensesChart = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
   const months = parseInt(req.query.months) || 5;
-  const monthsData = getLastNMonths(months);
-
-  // OPTIMIZED: Single query with CASE statements instead of N queries
-  const monthRanges = monthsData.map(m => {
-    const monthStart = `${m.year}-${m.month.toString().padStart(2, '0')}-01`;
-    const monthEnd = new Date(m.year, m.month, 0).toISOString().split('T')[0];
-    return { monthStart, monthEnd, name: m.name };
-  });
+  const monthRanges = getLastNShamsiMonths(months).map((m) => ({
+    monthStart: m.monthStart,
+    monthEnd: m.monthEnd,
+    name: m.name,
+  }));
 
   let result;
 
@@ -710,7 +687,7 @@ export const getMonthlyExpensesChart = asyncHandler(async (req, res) => {
 export const getRecentAdmissions = asyncHandler(async (req, res) => {
   const rawType = req.query.type || "all";
   const type = normalizeType(rawType);
-  const limit = parseInt(req.query.limit) || 10;
+  const limit = Math.min(parseInt(req.query.limit) || 5, 5);
 
   let recentStudents = [];
 
@@ -726,6 +703,7 @@ export const getRecentAdmissions = asyncHandler(async (req, res) => {
     })
       .from(students)
       .leftJoin(classes, eq(students.classId, classes.id))
+      .where(activeStudentCondition)
       .orderBy(desc(students.createdAt))
       .limit(limit);
   } else {
@@ -741,14 +719,17 @@ export const getRecentAdmissions = asyncHandler(async (req, res) => {
       .from(students)
       .innerJoin(studentEnrollments, eq(students.id, studentEnrollments.studentId))
       .leftJoin(classes, eq(students.classId, classes.id))
-      .where(eq(studentEnrollments.enrollmentType, type))
+      .where(and(eq(studentEnrollments.enrollmentType, type), activeStudentCondition))
       .orderBy(desc(students.createdAt))
       .limit(limit);
   }
 
   res.json({
     success: true,
-    data: recentStudents,
+    data: recentStudents.map((s) => ({
+      ...s,
+      classTypeLabel: getInstituteTypeLabel(s.classType),
+    })),
   });
 });
 
@@ -761,47 +742,37 @@ export const getUpcomingExams = asyncHandler(async (req, res) => {
   const type = normalizeType(rawType);
   const limit = parseInt(req.query.limit) || 5;
   const today = getCurrentAfghanDate();
+  const academicYear = String(req.query.year || currentShamsiYear());
 
-  let upcomingExams = [];
-
-  if (type === "all") {
-    upcomingExams = await db.select({
-      id: exams.id,
-      examTitle: exams.examTitle,
-      institutionType: exams.institutionType,
-      startDate: exams.startDate,
-      endDate: exams.endDate,
-      status: exams.status,
-    })
-      .from(exams)
-      .where(and(
-        gte(exams.startDate, today),
-        eq(exams.status, "فعال")
-      ))
-      .orderBy(exams.startDate)
-      .limit(limit);
-  } else {
-    upcomingExams = await db.select({
-      id: exams.id,
-      examTitle: exams.examTitle,
-      institutionType: exams.institutionType,
-      startDate: exams.startDate,
-      endDate: exams.endDate,
-      status: exams.status,
-    })
-      .from(exams)
-      .where(and(
-        gte(exams.startDate, today),
-        eq(exams.status, "فعال"),
-        eq(exams.institutionType, type)
-      ))
-      .orderBy(exams.startDate)
-      .limit(limit);
+  const conditions = [
+    eq(exams.status, "فعال"),
+    gte(exams.endDate, today),
+    eq(exams.academicYear, academicYear),
+  ];
+  if (type !== "all") {
+    conditions.push(eq(exams.institutionType, type));
   }
+
+  const upcomingExams = await db.select({
+    id: exams.id,
+    examTitle: exams.examTitle,
+    institutionType: exams.institutionType,
+    startDate: exams.startDate,
+    endDate: exams.endDate,
+    status: exams.status,
+    academicYear: exams.academicYear,
+  })
+    .from(exams)
+    .where(and(...conditions))
+    .orderBy(exams.startDate)
+    .limit(limit);
 
   res.json({
     success: true,
-    data: upcomingExams,
+    data: upcomingExams.map((e) => ({
+      ...e,
+      institutionTypeLabel: getInstituteTypeLabel(e.institutionType),
+    })),
   });
 });
 

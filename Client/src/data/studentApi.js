@@ -49,3 +49,26 @@ export const updateStudent = async (id, studentData, imageFile) =>
 
 export const deleteStudent = async (id) =>
   apiClient.request(`/students/${id}`, { method: "DELETE" });
+
+export const toggleStudentStatus = async (id, status) =>
+  apiClient.request(`/students/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+
+export const getParentNumbers = async (params = {}) => {
+  const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v !== undefined && v !== null));
+  const queryString = new URLSearchParams(clean).toString();
+  return apiClient.request(`/students/parent-numbers${queryString ? `?${queryString}` : ""}`, { method: "GET" });
+};
+
+export const toggleParentCallStatus = async (payload) =>
+  apiClient.request("/students/parent-numbers/call-status", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const getClassesByType = async ({ type, academicYear }) => {
+  const params = new URLSearchParams({ type, academicYear: String(academicYear) });
+  return apiClient.request(`/students/classes-by-type?${params}`, { method: "GET" });
+};

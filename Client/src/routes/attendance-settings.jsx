@@ -34,9 +34,30 @@ export default function AttendanceSettings() {
     try {
       const response = await attendanceSettingsApi.getAllAttendanceSettings();
       const settingsMap = {};
-      (response.data || []).forEach((s) => {
-        settingsMap[s.institutionType] = s;
+      
+      // Initialize default settings for all institution types
+      INSTITUTION_TYPES.forEach((type) => {
+        settingsMap[type.value] = {
+          institutionType: type.value,
+          cutoffTime: "09:00",
+          offDays: [5], // Friday default
+          isActive: true,
+        };
       });
+      
+      // Override with actual settings from database
+      if (response.data && Array.isArray(response.data)) {
+        response.data.forEach((s) => {
+          settingsMap[s.institutionType] = {
+            ...s,
+            // Ensure cutoffTime is always set, even if loaded from DB
+            cutoffTime: s.cutoffTime || "09:00",
+            offDays: Array.isArray(s.offDays) ? s.offDays : [5],
+            isActive: s.isActive ?? true,
+          };
+        });
+      }
+      
       setSettings(settingsMap);
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -47,19 +68,32 @@ export default function AttendanceSettings() {
   };
 
   const handleTimeChange = (institutionType, time) => {
-    setSettings((prev) => ({
-      ...prev,
-      [institutionType]: {
-        ...prev[institutionType],
-        cutoffTime: time,
-      },
-    }));
+    setSettings((prev) => {
+      const current = prev[institutionType] || {
+        institutionType: institutionType,
+        cutoffTime: "09:00",
+        offDays: [5],
+        isActive: true,
+      };
+      return {
+        ...prev,
+        [institutionType]: {
+          ...current,
+          cutoffTime: time || "09:00",
+        },
+      };
+    });
   };
 
   const handleOffDayToggle = (institutionType, dayValue) => {
     setSettings((prev) => {
-      const current = prev[institutionType] || {};
-      const offDays = current.offDays || [];
+      const current = prev[institutionType] || {
+        institutionType: institutionType,
+        cutoffTime: "09:00",
+        offDays: [5],
+        isActive: true,
+      };
+      const offDays = Array.isArray(current.offDays) ? current.offDays : [5];
       const newOffDays = offDays.includes(dayValue)
         ? offDays.filter((d) => d !== dayValue)
         : [...offDays, dayValue];
@@ -171,7 +205,7 @@ export default function AttendanceSettings() {
                 </label>
                 <input
                   type="time"
-                  value={setting.cutoffTime || "09:00"}
+                  value={setting?.cutoffTime || "09:00"}
                   onChange={(e) =>
                     handleTimeChange(type.value, e.target.value)
                   }

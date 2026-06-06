@@ -6,7 +6,7 @@ export function PageHeader({ title, subtitle, actions }) {
         {subtitle && <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
       </div>
       {actions && (
-        <div className="flex items-center gap-2 flex-wrap shrink-0">{actions}</div>
+        <div className="flex items-stretch sm:items-center gap-2 flex-wrap w-full sm:w-auto shrink-0 [&>button]:min-h-[40px] sm:[&>button]:min-h-0">{actions}</div>
       )}
     </div>
   );

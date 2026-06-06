@@ -39,101 +39,116 @@ export const generateFeeReceiptPDF = (paymentData) => {
       const right = { width: contentWidth, align: 'right' };
       const center = { width: contentWidth, align: 'center' };
 
+      // School Name
       setFont(doc, true);
       doc.fontSize(12);
       doc.text(SCHOOL_INFO.name, center);
       doc.moveDown(0.4);
 
+      // Separator line
       doc.moveTo(THERMAL_MARGIN, doc.y).lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y).stroke();
       doc.moveDown(0.4);
 
+      // Receipt Title
       setFont(doc, true);
       doc.fontSize(11);
       doc.text('د فیس رسید', center);
-      doc.moveDown(0.4);
+      doc.moveDown(0.5);
 
+      // Receipt Number and Date
       setFont(doc, false);
       doc.fontSize(8);
-      doc.text(`رسید نمبر: ${paymentData.receiptNo}`, right);
-      doc.text(`نېټه: ${paymentData.date}`, right);
-      doc.moveDown(0.4);
-
-      doc.moveTo(THERMAL_MARGIN, doc.y)
-        .lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y)
-        .dash(3, { space: 3 })
-        .stroke()
-        .undash();
-      doc.moveDown(0.4);
-
-      const labelRow = (label, value) => {
-        setFont(doc, true);
-        doc.fontSize(8);
-        doc.text(`${label} ${value}`, right);
-        doc.moveDown(0.25);
-      };
-
-      labelRow('د زده کوونکي نوم:', paymentData.studentName);
-      labelRow('د پلار نوم:', paymentData.fatherName);
-      labelRow('ټولګی:', paymentData.className || 'N/A');
-      labelRow(
-        'ډول:',
-        enrollmentTypeMap[paymentData.enrollmentType] || paymentData.enrollmentType
-      );
-
+      doc.text(`${paymentData.receiptNo} :رسید نمبر`, right);
       doc.moveDown(0.3);
+      doc.text(`${paymentData.date} :نېټه`, right);
+      doc.moveDown(0.5);
+
+      // Dashed separator
       doc.moveTo(THERMAL_MARGIN, doc.y)
         .lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y)
         .dash(3, { space: 3 })
         .stroke()
         .undash();
-      doc.moveDown(0.4);
+      doc.moveDown(0.5);
 
-      setFont(doc, true);
+      // Student Information
+      setFont(doc, false);
       doc.fontSize(8);
-      doc.text(`میاشت: ${paymentData.month}`, right);
-      doc.text(`تعلیمي کال: ${paymentData.academicYear}`, right);
-      doc.moveDown(0.4);
+      
+      // Format: Label first, then value (RTL format)
+      doc.text(`${paymentData.studentName} :د زده کوونکي نوم`, right);
+      doc.moveDown(0.3);
+      doc.text(`${paymentData.fatherName} :د پلار نوم`, right);
+      doc.moveDown(0.3);
+      doc.text(`${paymentData.className || 'N/A'} :ټولګی`, right);
+      doc.moveDown(0.3);
+      doc.text(`${enrollmentTypeMap[paymentData.enrollmentType] || paymentData.enrollmentType} :ډول`, right);
+      doc.moveDown(0.5);
 
+      // Dashed separator
+      doc.moveTo(THERMAL_MARGIN, doc.y)
+        .lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y)
+        .dash(3, { space: 3 })
+        .stroke()
+        .undash();
+      doc.moveDown(0.5);
+
+      // Month and Year
+      setFont(doc, false);
+      doc.fontSize(8);
+      doc.text(`${paymentData.month} :میاشت`, right);
+      doc.moveDown(0.3);
+      doc.text(`${paymentData.academicYear} :تعلیمي کال`, right);
+      doc.moveDown(0.5);
+
+      // Solid separator
       doc.moveTo(THERMAL_MARGIN, doc.y).lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y).stroke();
-      doc.moveDown(0.4);
+      doc.moveDown(0.5);
 
+      // Payment Details
       setFont(doc, true);
       doc.fontSize(9);
-      doc.text(`ټول فیس: ${paymentData.amount} افغانۍ`, right);
-      doc.text(`ترلاسه شوی: ${Number(paymentData.paid).toFixed(2)} افغانۍ`, right);
-      doc.text(
-        `پاتې فیس: ${remaining > 0 ? remaining.toFixed(2) : '0'} افغانۍ`,
-        right
-      );
-      doc.moveDown(0.4);
+      doc.text(`${paymentData.amount} افغانۍ :ټول فیس`, right);
+      doc.moveDown(0.3);
+      doc.text(`${Number(paymentData.paid).toFixed(2)} افغانۍ :ترلاسه شوی`, right);
+      doc.moveDown(0.3);
+      doc.text(`${remaining > 0 ? remaining.toFixed(2) : '0'} افغانۍ :پاتې فیس`, right);
+      doc.moveDown(0.5);
 
+      // Solid separator
       doc.moveTo(THERMAL_MARGIN, doc.y).lineTo(THERMAL_WIDTH - THERMAL_MARGIN, doc.y).stroke();
-      doc.moveDown(0.4);
+      doc.moveDown(0.5);
 
+      // Status
       setFont(doc, true);
       doc.fontSize(9);
-      doc.text(`حالت: ${statusMap[paymentData.status] || paymentData.status}`, center);
-      doc.moveDown(0.4);
+      doc.text(`${statusMap[paymentData.status] || paymentData.status} :حالت`, center);
+      doc.moveDown(0.5);
 
+      // Notes
       if (paymentData.notes) {
         setFont(doc, false);
         doc.fontSize(7);
-        doc.text(`یادښت: ${paymentData.notes}`, right);
-        doc.moveDown(0.3);
+        doc.text(`${paymentData.notes} :یادښت`, right);
+        doc.moveDown(0.4);
       }
 
+      // Collected By
       if (paymentData.collectedBy) {
         setFont(doc, false);
         doc.fontSize(7);
-        doc.text(`د راټولونکي نوم: ${paymentData.collectedBy}`, right);
-        doc.moveDown(0.3);
+        doc.text(`${paymentData.collectedBy} :د راټولونکي نوم`, right);
+        doc.moveDown(0.5);
       }
 
-      doc.moveDown(0.3);
+      // Footer
+      doc.moveDown(0.5);
       setFont(doc, false);
       doc.fontSize(7);
       doc.text('مننه چې تاسو زموږ سره یاست', center);
+      doc.moveDown(0.2);
       doc.text(`د اړیکې شمیره: ${SCHOOL_INFO.phone}`, center);
+      doc.moveDown(0.2);
       doc.text(`پته: ${SCHOOL_INFO.address}`, center);
 
       doc.end();

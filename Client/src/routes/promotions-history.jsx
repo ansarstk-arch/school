@@ -35,7 +35,7 @@ export default function PromotionHistoryPage() {
   const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
   const [filters, setFilters] = useState({ toAcademicYear: session || String(currentShamsiYear()) });
 
   const [viewOpen, setViewOpen] = useState(false);
@@ -49,14 +49,14 @@ export default function PromotionHistoryPage() {
       try {
         const res = await promotionApi.getAllPromotions({
           page: pageNum,
-          limit: 12,
+          limit: 10,
           ...f,
         });
 
         if (res.success) {
           setPromotions(res.data.promotions || []);
           setPagination(
-            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 12 }
+            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 10 }
           );
         }
       } catch (error) {
@@ -200,7 +200,7 @@ export default function PromotionHistoryPage() {
 
   const filterDefs = useMemo(
     () => [
-      { key: "toAcademicYear", label: "تعلیمي کال", type: "input", placeholder: "1403" },
+      { key: "toAcademicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
       {
         key: "fromInstitutionType",
         label: "ادارې ډول",
@@ -219,8 +219,6 @@ export default function PromotionHistoryPage() {
         type: "select",
         options: PROMOTION_TYPES,
       },
-      { key: "dateFrom", label: "له نېټې", type: "date" },
-      { key: "dateTo", label: "تر نېټې", type: "date" },
       { key: "search", label: "لټون", type: "input", placeholder: "د زده کوونکي نوم..." },
     ],
     []
@@ -267,7 +265,7 @@ export default function PromotionHistoryPage() {
         emptyText="هیڅ ترفیع ونه موندل شو"
         searchPlaceholder="د زده کوونکي نوم..."
         serverSidePagination
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}

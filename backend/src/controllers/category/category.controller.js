@@ -19,19 +19,13 @@ export const listCategories = asyncHandler(async (req, res) => {
   const conditions = [];
   if (q) {
     const queryPattern = `%${q}%`;
-    conditions.push(
-      or(
-        like(expenseCategories.name, queryPattern),
-        like(expenseCategories.nameEn, queryPattern)
-      )
-    );
+    conditions.push(like(expenseCategories.name, queryPattern));
   }
   const whereClause = conditions.length ? and(...conditions) : undefined;
 
   // Define sort fields
   const sortFields = {
     name: expenseCategories.name,
-    nameEn: expenseCategories.nameEn,
     createdAt: expenseCategories.createdAt,
   };
 
@@ -43,7 +37,6 @@ export const listCategories = asyncHandler(async (req, res) => {
     .select({
       id: expenseCategories.id,
       name: expenseCategories.name,
-      nameEn: expenseCategories.nameEn,
       createdAt: expenseCategories.createdAt,
       updatedAt: expenseCategories.updatedAt,
     })
@@ -86,7 +79,7 @@ export const listCategories = asyncHandler(async (req, res) => {
 });
 
 export const createCategory = asyncHandler(async (req, res) => {
-  const { name, nameEn } = req.body;
+  const { name } = req.body;
 
   // Check if category with same name exists
   const [existing] = await db
@@ -102,7 +95,6 @@ export const createCategory = asyncHandler(async (req, res) => {
     .insert(expenseCategories)
     .values({
       name,
-      nameEn: nameEn || null,
     })
     .returning();
 
@@ -126,7 +118,7 @@ export const getCategory = asyncHandler(async (req, res) => {
 
 export const updateCategory = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, nameEn } = req.body;
+  const { name } = req.body;
 
   const [existing] = await db
     .select()
@@ -153,7 +145,6 @@ export const updateCategory = asyncHandler(async (req, res) => {
     .update(expenseCategories)
     .set({
       name,
-      nameEn: nameEn || null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(expenseCategories.id, Number(id)))

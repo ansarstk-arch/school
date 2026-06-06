@@ -383,8 +383,6 @@ export default function MarksEntryPage() {
         type: "select",
         options: MARK_STATUSES,
       },
-      { key: "dateFrom", label: "له نېټې", type: "shamsiDate" },
-      { key: "dateTo", label: "تر نېټې", type: "shamsiDate" },
       { key: "search", label: "لټون", type: "input", placeholder: "نوم، رول…" },
     ],
     [listLookup.exams, listLookup.classes, listLookup.subjects]

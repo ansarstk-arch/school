@@ -1,6 +1,8 @@
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { eq, and, isNull, inArray, sql } from "drizzle-orm";
 import db from "../configs/db/db.config.js";
 import { attendance, attendanceSettings, students, staff, teachers, studentEnrollments } from "../db/schema.js";
+import { getCurrentAfghanDate } from "./dateHandler.util.js";
+import { currentShamsiYear } from "../lib/afghan-date.js";
 
 // Check if today is an off day for the institution
 const isOffDay = (offDays) => {
@@ -11,8 +13,9 @@ const isOffDay = (offDays) => {
 // Mark absent for students who haven't been marked
 export const markAbsentStudents = async () => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5); // HH:MM
+    const today = getCurrentAfghanDate();
+    const afghanNow = new Date(Date.now() + (4.5 * 60 * 60 * 1000));
+    const currentTime = `${String(afghanNow.getUTCHours()).padStart(2, "0")}:${String(afghanNow.getUTCMinutes()).padStart(2, "0")}`;
 
     console.log(`[Auto-Absence] Running at ${currentTime} for date ${today}`);
 
@@ -89,8 +92,9 @@ export const markAbsentStudents = async () => {
 // Mark absent for staff who haven't been marked
 export const markAbsentStaff = async () => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 5);
+    const today = getCurrentAfghanDate();
+    const afghanNow = new Date(Date.now() + (4.5 * 60 * 60 * 1000));
+    const currentTime = `${String(afghanNow.getUTCHours()).padStart(2, "0")}:${String(afghanNow.getUTCMinutes()).padStart(2, "0")}`;
 
     console.log(`[Auto-Absence Staff] Running at ${currentTime} for date ${today}`);
 
@@ -117,8 +121,16 @@ export const markAbsentStaff = async () => {
       return;
     }
 
-    // Get all active staff
-    const allStaff = await db.select({ id: staff.id }).from(staff).where(eq(staff.status, "active"));
+    const currentYear = String(currentShamsiYear());
+    const allStaff = await db
+      .select({ id: staff.id })
+      .from(staff)
+      .where(
+        and(
+          eq(staff.status, "active"),
+          sql`(${staff.academicYear} = ${currentYear} OR ${staff.academicYear} IS NULL OR ${staff.academicYear} = '')`
+        )
+      );
     const allTeachers = await db.select({ id: teachers.id }).from(teachers);
 
     let markedCount = 0;

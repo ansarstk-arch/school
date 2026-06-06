@@ -33,6 +33,7 @@ export function useMarksLookups({ academicYear: yearProp, examId, institutionTyp
     try {
       const res = await examApi.getAllExams({
         academicYear,
+        institutionType,
         limit: 200,
       });
       if (res.success) setExams(res.data.exams || []);
@@ -41,7 +42,7 @@ export function useMarksLookups({ academicYear: yearProp, examId, institutionTyp
     } finally {
       setLoadingExams(false);
     }
-  }, [academicYear]);
+  }, [academicYear, institutionType]);
 
   const loadClasses = useCallback(async () => {
     if (!institutionType) {

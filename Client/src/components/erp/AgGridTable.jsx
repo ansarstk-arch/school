@@ -1,8 +1,10 @@
 import { AgGridReact } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import { Search, Download, ChevronLeft, ChevronRight, Trash2, FileDown, Eye, Settings } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { DEFAULT_PAGE_SIZE } from "@/utils/pagination";
+import { useIsMobile, useIsTablet } from "@/hooks/useMediaQuery";
 import "./ag-grid-modern.css";
 
 // Register AG-Grid modules
@@ -18,7 +20,7 @@ export function AgGridTable({
   onRowClicked,
   onSortChanged,
   serverSidePagination = false,
-  clientSidePagination = false,
+  clientSidePagination = true,
   pageSize = DEFAULT_PAGE_SIZE,
   totalRows = 0,
   currentPage = 1,
@@ -51,10 +53,12 @@ export function AgGridTable({
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [clientPage, setClientPage] = useState(1);
   const gridRef = useRef(null);
+  const isMobile = useIsMobile();
+  const isTablet = useIsTablet();
 
   const useClientPaging = clientSidePagination && !serverSidePagination;
   const effectiveOnPageChange = onPageChange ?? (useClientPaging ? setClientPage : undefined);
-  const showPagination = Boolean(serverSidePagination || useClientPaging || effectiveOnPageChange);
+  const showPagination = Boolean(serverSidePagination || useClientPaging || effectiveOnPageChange || Array.isArray(rowData));
 
   const clientTotalRows = rowData?.length ?? 0;
   const clientTotalPages = Math.max(1, Math.ceil(clientTotalRows / pageSize) || 1);
@@ -69,6 +73,13 @@ export function AgGridTable({
     return rowData.slice(start, start + pageSize);
   }, [useClientPaging, rowData, clientPage, pageSize]);
 
+  const headerH = isMobile ? 40 : 44;
+  const rowH = isMobile ? 44 : 48;
+  const visibleRowCount = displayedRowData?.length ?? 0;
+  const rowsForHeight = Math.min(pageSize, Math.max(visibleRowCount, 1));
+  const gridHeight = headerH + rowH * rowsForHeight + 6;
+  const needsVerticalScroll = visibleRowCount > 0 && visibleRowCount >= rowsForHeight;
+
   useEffect(() => {
     if (useClientPaging && clientPage > clientTotalPages) {
       setClientPage(1);
@@ -82,14 +93,15 @@ export function AgGridTable({
   const defaultColDef = useMemo(() => ({
     sortable: true,
     filter: false,
-    resizable: true,
+    resizable: !isMobile,
     suppressMovable: true,
     wrapText: false,
     autoHeight: false,
     cellClass: 'ag-cell-aligned',
     editable: enableInlineEdit,
     tooltipValueGetter: (params) => params.value,
-  }), [enableInlineEdit]);
+    minWidth: isMobile ? 72 : 80,
+  }), [enableInlineEdit, isMobile]);
 
   const handleExport = () => {
     if (onExportClick) {
@@ -193,15 +205,11 @@ export function AgGridTable({
     };
   }, [getContextMenuItems, onRowClicked]);
 
-  // Auto-resize columns on data change
+  const hasSizedColumns = useRef(false);
+
   useEffect(() => {
-    if (gridRef.current?.api && rowData?.length > 0) {
-      const timer = setTimeout(() => {
-        gridRef.current.api.sizeColumnsToFit();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [rowData]);
+    hasSizedColumns.current = false;
+  }, [columnDefs]);
 
   // Initialize column visibility state
   useEffect(() => {
@@ -235,31 +243,48 @@ export function AgGridTable({
     if (effectiveOnPageChange) effectiveOnPageChange(nextPage);
   };
 
-  // Enhanced column definitions with selection checkbox
+  const responsiveColumnDefs = useMemo(() => {
+    if (!isMobile) return columnDefs;
+    return columnDefs.map((col) => {
+      if (col.field === "actions" || col.pinned || col.checkboxSelection) {
+        return { ...col, pinned: col.pinned ?? (enableRtl ? "right" : "left") };
+      }
+      if (col.hideOnMobile) {
+        return { ...col, hide: true };
+      }
+      return {
+        ...col,
+        flex: col.flex ?? 1,
+        minWidth: col.minWidth ?? 88,
+      };
+    });
+  }, [columnDefs, isMobile, enableRtl]);
+
   const enhancedColumnDefs = useMemo(() => {
-    if (!enableRowSelection) return columnDefs;
-    
+    const base = responsiveColumnDefs;
+    if (!enableRowSelection) return base;
+
     return [
       {
         headerCheckboxSelection: true,
         checkboxSelection: true,
-        width: 50,
-        minWidth: 50,
-        maxWidth: 50,
-        pinned: enableRtl ? 'right' : 'left',
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        pinned: enableRtl ? "right" : "left",
         lockPosition: true,
         suppressMovable: true,
         sortable: false,
         filter: false,
         resizable: false,
-        headerName: '',
+        headerName: "",
       },
-      ...columnDefs,
+      ...base,
     ];
-  }, [columnDefs, enableRowSelection, enableRtl]);
+  }, [responsiveColumnDefs, enableRowSelection, enableRtl]);
 
   return (
-    <div className="modern-table-container">
+    <div className={cn("modern-table-container", isMobile && "modern-table-container--mobile")}>
       {/* Toolbar */}
       <div className="modern-table-toolbar">
         <div className="toolbar-search">
@@ -327,7 +352,7 @@ export function AgGridTable({
                   <button onClick={() => setShowColumnMenu(false)} className="close-btn">×</button>
                 </div>
                 <div className="column-menu-items">
-                  {columnDefs.filter(col => col.field && col.headerName).map((col) => (
+                  {responsiveColumnDefs.filter(col => col.field && col.headerName).map((col) => (
                     <label key={col.field} className="column-menu-item">
                       <input
                         type="checkbox"
@@ -385,7 +410,10 @@ export function AgGridTable({
       </div>
 
       {/* AG-Grid Table */}
-      <div className={`modern-ag-grid ${enableRtl ? 'rtl-mode' : ''}`}>
+      <div
+        className={`modern-ag-grid ${enableRtl ? "rtl-mode" : ""} ${isMobile ? "modern-ag-grid--mobile" : ""}`}
+        style={{ height: gridHeight }}
+      >
         {loading ? (
           <div className="table-overlay">
             <div className="overlay-spinner"></div>
@@ -405,8 +433,8 @@ export function AgGridTable({
             onSelectionChanged={handleSelectionChanged}
             onCellValueChanged={onCellValueChanged}
             domLayout="normal"
-            rowHeight={48}
-            headerHeight={44}
+            rowHeight={isMobile ? 44 : 48}
+            headerHeight={isMobile ? 40 : 44}
             animateRows={false}
             enableRtl={enableRtl}
             suppressPaginationPanel={true}
@@ -416,21 +444,25 @@ export function AgGridTable({
             enterNavigatesVertically={enableInlineEdit}
             enterNavigatesVerticallyAfterEdit={enableInlineEdit}
             suppressColumnVirtualisation={!enableInlineEdit}
-            suppressRowVirtualisation={false}
+            suppressRowVirtualisation={true}
             suppressHorizontalScroll={false}
-            alwaysShowHorizontalScroll={false}
-            alwaysShowVerticalScroll={false}
+            alwaysShowHorizontalScroll={isMobile}
+            alwaysShowVerticalScroll={needsVerticalScroll}
+            suppressColumnMoveAnimation
             rowSelection={enableRowSelection ? rowSelectionType : undefined}
             suppressRowClickSelection={enableRowSelection}
             getContextMenuItems={defaultContextMenuItems}
             onGridReady={(params) => {
-              params.api.sizeColumnsToFit();
+              if (!isMobile && !hasSizedColumns.current) {
+                params.api.sizeColumnsToFit();
+                hasSizedColumns.current = true;
+              }
             }}
             onFirstDataRendered={(params) => {
-              params.api.sizeColumnsToFit();
-            }}
-            onGridSizeChanged={(params) => {
-              params.api.sizeColumnsToFit();
+              if (!isMobile && !hasSizedColumns.current) {
+                params.api.sizeColumnsToFit();
+                hasSizedColumns.current = true;
+              }
             }}
           />
         )}
@@ -445,44 +477,42 @@ export function AgGridTable({
               : `${from}–${to} له ${resolvedTotalRows.toLocaleString()} ریکارډونو`}
           </p>
 
-          {resolvedTotalPages > 1 && (
-            <div className="pagination-buttons">
-              <button
-                onClick={() => handlePageChange(resolvedCurrentPage - 1)}
-                disabled={resolvedCurrentPage === 1 || loading}
-                className="page-btn"
-                aria-label="previous page"
-              >
-                <ChevronLeft className="page-icon" />
-              </button>
+          <div className="pagination-buttons">
+            <button
+              onClick={() => handlePageChange(resolvedCurrentPage - 1)}
+              disabled={resolvedCurrentPage === 1 || loading}
+              className="page-btn"
+              aria-label="previous page"
+            >
+              <ChevronLeft className="page-icon" />
+            </button>
 
-              {pageNumbers.map((pageNum, idx) => {
-                const prev = pageNumbers[idx - 1];
-                const showEllipsis = prev && pageNum - prev > 1;
-                return (
-                  <span key={pageNum} className="page-item">
-                    {showEllipsis && <span className="page-ellipsis">…</span>}
-                    <button
-                      onClick={() => handlePageChange(pageNum)}
-                      disabled={loading}
-                      className={`page-btn ${pageNum === resolvedCurrentPage ? "active" : ""}`}
-                    >
-                      {pageNum}
-                    </button>
-                  </span>
-                );
-              })}
+            {pageNumbers.map((pageNum, idx) => {
+              const prev = pageNumbers[idx - 1];
+              const showEllipsis = prev && pageNum - prev > 1;
+              return (
+                <span key={pageNum} className="page-item">
+                  {showEllipsis && <span className="page-ellipsis">…</span>}
+                  <button
+                    onClick={() => handlePageChange(pageNum)}
+                    disabled={loading}
+                    className={`page-btn ${pageNum === resolvedCurrentPage ? "active" : ""}`}
+                  >
+                    {pageNum}
+                  </button>
+                </span>
+              );
+            })}
 
-              <button
-                onClick={() => handlePageChange(resolvedCurrentPage + 1)}
-                disabled={resolvedCurrentPage === resolvedTotalPages || loading}
-                className="page-btn"
-                aria-label="next page"
-              >
-                <ChevronRight className="page-icon" />
-              </button>
-            </div>
-          )}
+            <button
+              onClick={() => handlePageChange(resolvedCurrentPage + 1)}
+              disabled={resolvedCurrentPage === resolvedTotalPages || loading}
+              className="page-btn"
+              aria-label="next page"
+            >
+              <ChevronRight className="page-icon" />
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -9,5 +9,15 @@ export const ErrorMiddlware = async (err, req, res, next) => {
     message = "داخلي سرور خرابي";
   }
 
-  return res.respond(statusCode, message);
+  // Check if res.respond is available (should be added by responseMiddleware)
+  if (typeof res.respond === 'function') {
+    return res.respond(statusCode, message);
+  } else {
+    // Fallback if middleware not applied (CORS errors, etc.)
+    return res.status(statusCode).json({
+      success: false,
+      message: message,
+      status: statusCode
+    });
+  }
 };

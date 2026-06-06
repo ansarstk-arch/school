@@ -6,15 +6,17 @@ import { ErpModal } from "@/components/erp/ErpModal";
 import { FilterBar } from "@/components/erp/FilterBar";
 import { Input } from "@/components/ui/Input";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Pencil, Trash2, Eye, Upload, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Plus, Pencil, Trash2, Eye, Upload, X, UserX, UserCheck } from "lucide-react";
 import { ImageLightbox } from "@/components/erp/ImageLightbox";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
+import { ConfirmStatus } from "@/components/erp/ConfirmStatus";
 import { currentShamsiYear } from "@/lib/afghan-date";
 import * as studentApi from "@/data/studentApi";
 import { getAllClasses } from "@/data/classApi";
 import { exportStudentsToExcel } from "@/utils/excelExport";
-import { exportStudentsPDF } from "@/utils/pdfDownload";
 import { toast } from "sonner";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:3000';
 const imgUrl = (path) => path ? `${API_BASE}/uploads/${path}` : null;
@@ -37,14 +39,14 @@ const F = ({ label, opt, error, children }) => (
 
 const ENROLL_TYPES = [
   { value: "School",  label: "ښوونځی", variant: "info"    },
-  { value: "Center",  label: "مرکز",   variant: "muted"   },
+  { value: "Center",  label: "سینټر",   variant: "muted"   },
   { value: "Madrasa", label: "مدرسه",  variant: "warning" },
 ];
 
 const EMPTY_FORM = {
-  fullName: "", fatherName: "", grandFatherName: "", phone: "",
+  fullName: "", fatherName: "", grandFatherName: "", maternalUncleName: "", parentNumber1: "",
   rollNumber: "", idCardNumber: "", dob: "", gender: "Male", 
-  address: "", emergencyContact: "", academicYear: String(currentShamsiYear()),
+  address: "", parentNumber2: "", academicYear: String(currentShamsiYear()),
   enrollments: [], classes: { School: "", Center: "", Madrasa: "" },
   fees: { School: "", Center: "", Madrasa: "" }, registrationFee: "", image: null, removeImage: false
 };
@@ -132,12 +134,14 @@ const validateStudent = (data) => {
     });
   }
 
-  if (data.phone && !phoneRegex.test(data.phone)) {
-    errors.phone = "ټېلیفون نمبر باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)";
+  if (!data.parentNumber1?.trim()) {
+    errors.parentNumber1 = "د والد نمبر ۱ اړین دی";
+  } else if (!phoneRegex.test(data.parentNumber1)) {
+    errors.parentNumber1 = "ټېلیفون نمبر باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)";
   }
 
-  if (data.emergencyContact && !phoneRegex.test(data.emergencyContact)) {
-    errors.emergencyContact = "ټېلیفون نمبر باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)";
+  if (data.parentNumber2 && !phoneRegex.test(data.parentNumber2)) {
+    errors.parentNumber2 = "ټېلیفون نمبر باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)";
   }
 
   if (data.idCardNumber && (data.idCardNumber.length < 5 || data.idCardNumber.length > 20)) {
@@ -152,36 +156,54 @@ const validateStudent = (data) => {
 };
 
 export default function StudentsPage() {
+  const { allowedInstitutions } = usePermissions();
+  const visibleEnrollTypes = ENROLL_TYPES.filter((t) => allowedInstitutions.includes(t.value));
   const [students, setStudents] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusTarget, setStatusTarget] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [selected, setSelected] = useState(null);
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState({ academicYear: String(currentShamsiYear()) }); // Initialize with default year
   const [errors, setErrors] = useState({});
   const [imageFile, setImageFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [classesByType, setClassesByType] = useState({ School: [], Center: [], Madrasa: [] });
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
   const [exportLoading, setExportLoading] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Fetch classes for each type
-  const fetchClassesByType = async () => {
+  const studentFilters = useMemo(() => [
+    { key: "id", label: "د زده کوونکي ID", type: "number", placeholder: "ID..." },
+    { key: "fullName", label: "نوم", type: "input", placeholder: "نوم، د پلار نوم..." },
+    { key: "enrollmentType", label: "ډول", type: "select", options: visibleEnrollTypes.map((t) => ({ value: t.value, label: t.label })) },
+    { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
+    { key: "status", label: "حالت", type: "select", options: [
+      { value: "active", label: "فعال" },
+      { value: "inactive", label: "غیر فعال" },
+    ]},
+  ], [visibleEnrollTypes]);
+
+  // Fetch classes for allowed institution types and academic year
+  const fetchClassesByType = async (year = form.academicYear || String(currentShamsiYear())) => {
     try {
-      const types = ["School", "Center", "Madrasa"];
-      const classesData = {};
-      
-      for (const type of types) {
-        const response = await getAllClasses({ type, limit: 100 });
-        classesData[type] = response.data.classes || [];
-      }
-      
+      const types = allowedInstitutions.length > 0 ? allowedInstitutions : ["School", "Center", "Madrasa"];
+      const classesData = { School: [], Center: [], Madrasa: [] };
+
+      await Promise.all(
+        types.map(async (type) => {
+          const response = await getAllClasses({ type, academicYear: year, limit: 200 });
+          classesData[type] = response.data?.classes || [];
+        })
+      );
+
       setClassesByType(classesData);
     } catch (error) {
       console.error("Error fetching classes:", error);
@@ -192,9 +214,9 @@ export default function StudentsPage() {
   const fetchStudents = async () => {
     try {
       setLoading(true);
-      const response = await studentApi.getAllStudents({ ...filters, page, limit: 12 });
+      const response = await studentApi.getAllStudents({ ...filters, page, limit: 10 });
       setStudents(response.data.students || []);
-      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 12 });
+      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
       console.error("Error fetching students:", error);
       toast.error(error.message || "د زده کوونکو په ترلاسه کولو کې تېروتنه");
@@ -204,14 +226,27 @@ export default function StudentsPage() {
   };
 
   useEffect(() => {
-    fetchClassesByType();
+    fetchClassesByType(filters.academicYear || String(currentShamsiYear()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [allowedInstitutions, filters.academicYear]);
 
   useEffect(() => {
     fetchStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, page]);
+
+  useEffect(() => {
+    const openId = searchParams.get("openId");
+    const openView = searchParams.get("openView");
+    if (openId && openView) {
+      setFilters((prev) => ({ ...prev, id: openId }));
+      loadStudentView(Number(openId));
+      searchParams.delete("openId");
+      searchParams.delete("openView");
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setF = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -250,7 +285,10 @@ export default function StudentsPage() {
   };
 
   const openNew = () => {
-    setForm({ ...EMPTY_FORM, academicYear: String(currentShamsiYear()), enrollments: [] });
+    const defaultEnrollments = visibleEnrollTypes.length > 0 ? [visibleEnrollTypes[0].value] : [];
+    const year = String(currentShamsiYear());
+    fetchClassesByType(year);
+    setForm({ ...EMPTY_FORM, academicYear: year, enrollments: defaultEnrollments });
     setErrors({});
     setImageFile(null);
     setIsEditing(false);
@@ -271,6 +309,8 @@ export default function StudentsPage() {
     setForm({ 
       ...EMPTY_FORM, 
       ...s, 
+      parentNumber1: s.parentNumber1 || s.phone || "",
+      parentNumber2: s.parentNumber2 || s.emergencyContact || "",
       enrollments,
       classes,
       fees,
@@ -282,8 +322,36 @@ export default function StudentsPage() {
     setFormOpen(true);
   };
 
-  const openView = (s) => { setSelected(s); setViewOpen(true); };
+  const loadStudentView = async (id) => {
+    setViewOpen(true);
+    setViewLoading(true);
+    try {
+      const response = await studentApi.getStudentById(id);
+      setSelected(response.data.student);
+    } catch (error) {
+      toast.error(error.message || "د زده کوونکي معلومات ترلاسه نه شول");
+      setViewOpen(false);
+    } finally {
+      setViewLoading(false);
+    }
+  };
+
+  const openView = (s) => loadStudentView(s.id);
   const openDelete = (s) => { setSelected(s); setDeleteOpen(true); };
+
+  const openToggleStatus = (s) => { setStatusTarget(s); setStatusOpen(true); };
+
+  const handleToggleStatus = async () => {
+    if (!statusTarget) return;
+    const newStatus = statusTarget.status === "inactive" ? "active" : "inactive";
+    try {
+      await studentApi.toggleStudentStatus(statusTarget.id, newStatus);
+      toast.success(newStatus === "active" ? "زده کوونکی فعال شو" : "زده کوونکی غیر فعال شو");
+      fetchStudents();
+    } catch (error) {
+      toast.error(error.message || "د حالت بدلولو کې تېروتنه");
+    }
+  };
 
   const handleSave = async () => {
     const validationErrors = validateStudent(form);
@@ -371,180 +439,40 @@ export default function StudentsPage() {
     }
   };
 
-  // Export students to PDF
-  const handlePdfStudents = async () => {
-    try {
-      setPdfLoading(true);
-      const currentYear = String(currentShamsiYear());
-      const exportFilters = Object.keys(filters).length > 0 ? filters : { academicYear: currentYear };
-      const response = await studentApi.getAllStudents({ ...exportFilters, page: 1, limit: 10000 });
-      const allStudents = response.data.students || [];
-      
-      if (allStudents.length === 0) {
-        toast.error("د صادرولو لپاره هیڅ زده کوونکی شتون نلري");
-        return;
-      }
-
-      await exportStudentsPDF(allStudents, exportFilters);
-      toast.success(`${allStudents.length} زده کوونکي بریالیتوب سره صادر شول`);
-    } catch (error) {
-      console.error("Error exporting students PDF:", error);
-      toast.error(error.message || "د PDF په جوړولو کې تېروتنه");
-    } finally {
-      setPdfLoading(false);
-    }
-  };
-
-// ─── Custom Student Filter Component ──────────────────────────────────────────
-function StudentFilterBar({ onApply, onClear }) {
-  const [filters, setFilters] = useState({});
-  const [availableClasses, setAvailableClasses] = useState([]);
-  const [loadingClasses, setLoadingClasses] = useState(false);
-
-  const updateFilter = (key, value) => {
-    const newFilters = { ...filters, [key]: value };
-    
-    // Clear class filter when type or year changes
-    if (key === 'enrollmentType' || key === 'academicYear') {
-      delete newFilters.classId;
-      setAvailableClasses([]);
-    }
-    
-    setFilters(newFilters);
-  };
-
-  // Fetch classes when type and year are selected
-  useEffect(() => {
-    const fetchClasses = async () => {
-      if (filters.enrollmentType && filters.academicYear) {
-        try {
-          setLoadingClasses(true);
-          const response = await getClassesByTypeAndYear(filters.enrollmentType, filters.academicYear);
-          setAvailableClasses(response.data.classes || []);
-        } catch (error) {
-          console.error('Error fetching classes:', error);
-          setAvailableClasses([]);
-        } finally {
-          setLoadingClasses(false);
-        }
-      }
-    };
-
-    fetchClasses();
-  }, [filters.enrollmentType, filters.academicYear]);
-
-  const handleApply = () => {
-    onApply(filters);
-  };
-
-  const handleClear = () => {
-    setFilters({});
-    setAvailableClasses([]);
-    onClear();
-  };
-
-  const hasFilters = Object.keys(filters).length > 0;
-
-  return (
-    <div className="bg-card border rounded-md p-3 space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-muted-foreground">فلټر:</span>
-        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-          {/* Student ID */}
-          <input
-            type="text"
-            placeholder="د زده کوونکي ID..."
-            value={filters.id || ''}
-            onChange={(e) => updateFilter('id', e.target.value)}
-            className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          
-          {/* Full Name */}
-          <input
-            type="text"
-            placeholder="نوم، د پلار نوم..."
-            value={filters.fullName || ''}
-            onChange={(e) => updateFilter('fullName', e.target.value)}
-            className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          
-          {/* Enrollment Type */}
-          <select
-            value={filters.enrollmentType || ''}
-            onChange={(e) => updateFilter('enrollmentType', e.target.value)}
-            className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="">د شمولیت ډول</option>
-            {ENROLL_TYPES.map(({ value, label }) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          
-          {/* Academic Year */}
-          <div className="min-w-[130px]">
-            <ShamsiYearPicker
-              value={filters.academicYear || ''}
-              onChange={(y) => updateFilter('academicYear', y)}
-              placeholder="تعلیمي کال"
-            />
-          </div>
+  const AttendanceBlock = ({ label, stats }) => (
+    <div>
+      <p className="text-[11px] text-muted-foreground mb-2">{label}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="p-2 bg-muted/50 rounded text-center">
+          <p className="text-xs text-muted-foreground">حاضر</p>
+          <p className="text-base font-semibold text-green-700 dark:text-green-400">{stats?.present || 0}</p>
         </div>
-      </div>
-
-      {/* Class Selection - Only show when type and year are selected */}
-      {filters.enrollmentType && filters.academicYear && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">ټولګی:</span>
-          <div className="flex-1">
-            <select
-              value={filters.classId || ''}
-              onChange={(e) => updateFilter('classId', e.target.value)}
-              disabled={loadingClasses}
-              className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring w-full max-w-xs"
-            >
-              <option value="">
-                {loadingClasses ? 'د ټولګیو بارول...' : 'ټولګی وټاکئ'}
-              </option>
-              {availableClasses.map((cls) => (
-                <option key={cls.id} value={cls.id}>
-                  {cls.name} {cls.section ? `- ${cls.section}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="p-2 bg-muted/50 rounded text-center">
+          <p className="text-xs text-muted-foreground">غیر حاضر</p>
+          <p className="text-base font-semibold text-red-700 dark:text-red-400">{stats?.absent || 0}</p>
         </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleApply}
-          className="text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 hover:opacity-90"
-        >
-          فلټر کول
-        </button>
-        {hasFilters && (
-          <button
-            onClick={handleClear}
-            className="text-xs border border-input rounded px-2.5 py-1.5 hover:bg-muted text-muted-foreground"
-          >
-            پاکول
-          </button>
-        )}
+        <div className="p-2 bg-muted/50 rounded text-center">
+          <p className="text-xs text-muted-foreground">رخصتي</p>
+          <p className="text-base font-semibold">{stats?.leave || 0}</p>
+        </div>
+        <div className="p-2 bg-muted/50 rounded text-center">
+          <p className="text-xs text-muted-foreground">ټول</p>
+          <p className="text-base font-semibold">{stats?.totalDays || 0}</p>
+        </div>
       </div>
     </div>
   );
-}
 
   // AG Grid columns
   const columnDefs = useMemo(() => [
     { field: "fullName", headerName: "نوم", flex: 1.2, minWidth: 150 },
-    { field: "fatherName", headerName: "د پلار نوم", flex: 1.1, minWidth: 140 },
+    { field: "fatherName", headerName: "د پلار نوم", flex: 1.1, minWidth: 140, hideOnMobile: true },
     { 
       field: "enrollments", 
       headerName: "ډول", 
       flex: 1, 
       minWidth: 120,
+      hideOnMobile: true,
       valueFormatter: (params) => {
         if (!params.value || !Array.isArray(params.value)) return "—";
         return params.value.map(e => {
@@ -592,6 +520,9 @@ function StudentFilterBar({ onApply, onClear }) {
             <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} title="سمول" className="p-1.5 rounded hover:bg-muted text-muted-foreground">
               <Pencil className="size-3.5" />
             </button>
+            <button onClick={(e) => { e.stopPropagation(); openToggleStatus(s); }} title={s.status === "inactive" ? "فعالول" : "غیر فعالول"} className={`p-1.5 rounded hover:bg-muted ${s.status === "inactive" ? "text-success" : "text-warning"}`}>
+              {s.status === "inactive" ? <UserCheck className="size-3.5" /> : <UserX className="size-3.5" />}
+            </button>
             <button onClick={(e) => { e.stopPropagation(); openDelete(s); }} title="ړنګول" className="p-1.5 rounded hover:bg-muted text-destructive">
               <Trash2 className="size-3.5" />
             </button>
@@ -615,9 +546,11 @@ function StudentFilterBar({ onApply, onClear }) {
         }
       />
 
-      <StudentFilterBar 
-        onApply={(f) => { setFilters(f); setPage(1); }} 
-        onClear={() => { setFilters({}); setPage(1); }} 
+      <FilterBar 
+        filters={studentFilters}
+        defaultValues={{ academicYear: String(currentShamsiYear()) }}
+        onApply={(f) => { setFilters(f); setPage(1); }}
+        onClear={(cleared) => { setFilters(cleared || { academicYear: String(currentShamsiYear()) }); setPage(1); }}
       />
 
       <AgGridTable
@@ -627,7 +560,7 @@ function StudentFilterBar({ onApply, onClear }) {
         emptyText="هیڅ زده کوونکی ونه موندل شو"
         searchPlaceholder="د زده کوونکي نوم، ټېلیفون..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}
@@ -636,59 +569,110 @@ function StudentFilterBar({ onApply, onClear }) {
         enableExport={true}
         exportFileName="students"
         onExportClick={handleExportStudents}
-        onPdfClick={handlePdfStudents}
         exportLoading={exportLoading}
-        pdfLoading={pdfLoading}
       />
 
       {/* View Modal */}
-      <ErpModal open={viewOpen} onOpenChange={setViewOpen} title="د زده کوونکي معلومات" size="md"
+      <ErpModal open={viewOpen} onOpenChange={setViewOpen} title="د زده کوونکي معلومات" size="lg"
         footer={<button onClick={() => setViewOpen(false)} className="px-4 py-1.5 text-sm border border-input rounded hover:bg-muted">بندول</button>}
       >
-        {selected && (
-          <div className="flex gap-4">
-            {/* Details - Left side */}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <DV label="بشپړ نوم" value={selected.fullName} />
-              <DV label="د پلار نوم" value={selected.fatherName} />
-              <DV label="جنسیت" value={selected.gender === "Male" ? "نر" : "ښځینه"} />
-              <DV label="ټېلیفون" value={selected.phone} />
-              <DV label="تعلیمي کال" value={selected.academicYear} />
-              <div className="col-span-2">
-                <p className="text-[11px] text-muted-foreground mb-2">د شمولیت ډول او فیسونه</p>
-                <div className="space-y-2">
-                  {selected.enrollments?.map((e) => {
-                    const t = ENROLL_TYPES.find((t) => t.value === e.type);
-                    return (
-                      <div key={e.type} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                        <Badge variant={t?.variant}>{t?.label}</Badge>
-                        <span className="text-sm font-medium">AFN {e.fee || 0}</span>
-                      </div>
-                    );
-                  })}
+        {viewLoading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">معلومات ترلاسه کیږي...</div>
+        ) : selected ? (
+          <div className="space-y-4">
+            {/* Profile Section */}
+            <div className="flex gap-4 pb-4 border-b border-border">
+              {/* Details - Left side */}
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <DV label="بشپړ نوم" value={selected.fullName} />
+                <DV label="د پلار نوم" value={selected.fatherName} />
+                <DV label="د نیکه نوم" value={selected.grandFatherName} />
+                <DV label="د ماما نوم" value={selected.maternalUncleName} />
+                <DV label="تذکیره نمبر" value={selected.idCardNumber} />
+                <DV label="جنسیت" value={selected.gender === "Male" ? "نر" : "ښځینه"} />
+                <DV label="د زیږیدنې نیټه" value={selected.dob || "—"} />
+                <DV label="عمر" value={selected.age != null ? `${selected.age} کاله` : "—"} />
+                <DV label="د والد نمبر ۱" value={selected.parentNumber1 || selected.phone} />
+                <DV label="د والد نمبر ۲" value={selected.parentNumber2 || selected.emergencyContact} />
+                <DV label="تعلیمي کال" value={selected.academicYear} />
+              </div>
+              
+              {/* Profile image - Right side */}
+              {selected.image && (
+                <div className="shrink-0">
+                  <img
+                    src={imgUrl(selected.image)}
+                    alt={selected.fullName}
+                    className="w-32 h-40 rounded-md object-cover border-2 border-border shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={() => {
+                      setLightboxImage(imgUrl(selected.image));
+                      setLightboxOpen(true);
+                    }}
+                    title="د لویولو لپاره کلیک وکړئ"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Enrollment Section */}
+            <div>
+              <p className="text-[11px] text-muted-foreground mb-2">د شمولیت ډول او فیسونه</p>
+              <div className="space-y-2">
+                {selected.enrollments?.map((e) => {
+                  const t = ENROLL_TYPES.find((t) => t.value === e.type);
+                  return (
+                    <div key={e.type} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                      <Badge variant={t?.variant}>{t?.label}</Badge>
+                      <span className="text-sm font-medium">AFN {e.fee || 0}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selected.attendanceStats && (
+              <div className="space-y-3">
+                <AttendanceBlock label="ورځنۍ حاضري" stats={selected.attendanceStats.daily} />
+                <AttendanceBlock label="اونیزه حاضري" stats={selected.attendanceStats.weekly} />
+                <AttendanceBlock label="میاشتنۍ حاضري" stats={selected.attendanceStats.monthly} />
+              </div>
+            )}
+
+            {/* Fee Details */}
+            {selected.feeDetails && (
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-2">د دې میاشتې فیس تفصیل</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="p-3 bg-muted/50 rounded text-center">
+                    <p className="text-xs text-muted-foreground">ټول فیس</p>
+                    <p className="text-lg font-semibold">{selected.feeDetails.thisMonthAmount} AFN</p>
+                  </div>
+                  <div className="p-3 bg-green-500/10 rounded text-center">
+                    <p className="text-xs text-green-700 dark:text-green-400">ورکړل شوی</p>
+                    <p className="text-lg font-semibold text-green-700 dark:text-green-400">{selected.feeDetails.thisMonthPaid} AFN</p>
+                  </div>
+                  <div className="p-3 bg-red-500/10 rounded text-center">
+                    <p className="text-xs text-red-700 dark:text-red-400">پاتې</p>
+                    <p className="text-lg font-semibold text-red-700 dark:text-red-400">{selected.feeDetails.thisMonthRemaining} AFN</p>
+                  </div>
+                  <div className="p-3 bg-blue-500/10 rounded text-center">
+                    <p className="text-xs text-blue-700 dark:text-blue-400">حالت</p>
+                    <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">
+                      {selected.feeDetails.thisMonthStatus === 'Paid' ? 'ورکړل شوی' : 
+                       selected.feeDetails.thisMonthStatus === 'Partial' ? 'جزوي' : 'نه ورکړل شوی'}
+                    </p>
+                  </div>
                 </div>
               </div>
+            )}
+
+            {/* Additional Info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <DV label="د ثبت نام فیس" value={selected.registrationFee ? `AFN ${selected.registrationFee}` : "—"} />
               <DV label="پته" value={selected.address} />
             </div>
-            
-            {/* Profile image - Right side */}
-            {selected.image && (
-              <div className="shrink-0">
-                <img
-                  src={imgUrl(selected.image)}
-                  alt={selected.fullName}
-                  className="w-32 h-40 rounded-md object-cover border-2 border-border shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
-                  onClick={() => {
-                    setLightboxImage(imgUrl(selected.image));
-                    setLightboxOpen(true);
-                  }}
-                  title="د لویولو لپاره کلیک وکړئ"
-                />
-              </div>
-            )}
           </div>
-        )}
+        ) : null}
       </ErpModal>
 
       {/* ── Image Lightbox ─────────────────────────────────────────────── */}
@@ -718,6 +702,9 @@ function StudentFilterBar({ onApply, onClear }) {
           <F label="د نیکه نوم" opt error={errors.grandFatherName}>
             <Input value={form.grandFatherName} handleChanges={(e) => setF("grandFatherName", e.target.value)} placeholder="د نیکه نوم" />
           </F>
+          <F label="د ماما نوم" opt error={errors.maternalUncleName}>
+            <Input value={form.maternalUncleName} handleChanges={(e) => setF("maternalUncleName", e.target.value)} placeholder="د ماما نوم" />
+          </F>
           <F label="تذکیره نمبر" opt error={errors.idCardNumber}>
             <Input value={form.idCardNumber} handleChanges={(e) => setF("idCardNumber", e.target.value)} placeholder="تذکیره نمبر" />
           </F>
@@ -730,11 +717,11 @@ function StudentFilterBar({ onApply, onClear }) {
           <F label="د زېږېدنې نېټه" opt>
             <Input type="date" value={form.dob} handleChanges={(e) => setF("dob", e.target.value)} />
           </F>
-          <F label="ټېلیفون" opt error={errors.phone}>
-            <Input value={form.phone} handleChanges={(e) => setF("phone", e.target.value)} placeholder="+93 7XX XXX XXX" />
+          <F label="د والد نمبر ۱" error={errors.parentNumber1}>
+            <Input value={form.parentNumber1} handleChanges={(e) => setF("parentNumber1", e.target.value)} placeholder="+93 7XX XXX XXX" />
           </F>
-          <F label="بېړنۍ اړیکه" opt error={errors.emergencyContact}>
-            <Input value={form.emergencyContact} handleChanges={(e) => setF("emergencyContact", e.target.value)} placeholder="+93 7XX XXX XXX" />
+          <F label="د والد نمبر ۲" opt error={errors.parentNumber2}>
+            <Input value={form.parentNumber2} handleChanges={(e) => setF("parentNumber2", e.target.value)} placeholder="+93 7XX XXX XXX" />
           </F>
           <F label="پته" opt error={errors.address}>
             <Input value={form.address} handleChanges={(e) => setF("address", e.target.value)} placeholder="ولایت، ښار" />
@@ -754,7 +741,7 @@ function StudentFilterBar({ onApply, onClear }) {
           <div className="col-span-2">
             <span className="text-xs text-muted-foreground block mb-1.5">د شمولیت ډول</span>
             <div className="flex gap-2">
-              {ENROLL_TYPES.map(({ value, label }) => {
+              {visibleEnrollTypes.map(({ value, label }) => {
                 const active = Array.isArray(form.enrollments) && form.enrollments.includes(value);
                 return (
                   <button key={value} type="button" onClick={() => toggleEnrollment(value)}
@@ -767,7 +754,7 @@ function StudentFilterBar({ onApply, onClear }) {
             {errors.enrollments && <p className="text-[11px] text-destructive mt-1">{errors.enrollments}</p>}
           </div>
 
-          {form.enrollments && form.enrollments.length > 0 && form.enrollments.map((type) => {
+          {form.enrollments && form.enrollments.length > 0 && form.enrollments.filter((type) => allowedInstitutions.includes(type)).map((type) => {
             const t = ENROLL_TYPES.find((t) => t.value === type);
             const classList = classesByType[type] || [];
             return (
@@ -798,6 +785,15 @@ function StudentFilterBar({ onApply, onClear }) {
           })}
         </div>
       </ErpModal>
+
+      <ConfirmStatus
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        onConfirm={handleToggleStatus}
+        title={statusTarget?.fullName}
+        subtitle={statusTarget?.fatherName}
+        action={statusTarget?.status === "inactive" ? "activate" : "deactivate"}
+      />
 
       <ConfirmDelete
         open={deleteOpen}

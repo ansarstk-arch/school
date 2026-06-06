@@ -5,12 +5,17 @@ import { ErpModal } from "@/components/erp/ErpModal";
 import { FilterBar } from "@/components/erp/FilterBar";
 import { Input } from "@/components/ui/Input";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Pencil, Trash2, Eye, Upload, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Upload, X, KeyRound, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
+import { ConfirmStatus } from "@/components/erp/ConfirmStatus";
 import * as staffApi from "@/data/staffApi";
 import { toast } from "sonner";
+import { currentShamsiYear } from "@/lib/afghan-date";
 import { exportStaffToExcel } from "@/utils/excelExport";
 import { ImageLightbox } from "@/components/erp/ImageLightbox";
+import { cn } from "@/lib/utils";
+import { MODULES, INSTITUTIONS, ROLE_PRESETS } from "@/lib/permissions";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:3000';
 const imgUrl = (path) => path ? `${API_BASE}/uploads/staff/${path}` : null;
@@ -25,11 +30,22 @@ const F = ({ label, opt, children }) => (
 
 const STAFF_TYPES = [
   { value: "School",  label: "ښوونځی", variant: "info"    },
-  { value: "Center",  label: "مرکز",   variant: "muted"   },
+  { value: "Center",  label: "سینټر",   variant: "muted"   },
   { value: "Madrasa", label: "مدرسه",  variant: "warning" },
 ];
 
-const EMPTY_STAFF = { name: "", fatherName: "", phone: "", idCardNumber: "", position: "", staffType: ["School"], salary: "", notes: "", image: null, removeImage: false };
+const EMPTY_STAFF = {
+  name: "", fatherName: "", phone: "", idCardNumber: "", position: "",
+  staffType: ["School"], salary: "", notes: "", image: null, removeImage: false,
+  hasSystemAccess: false,
+  username: "",
+  password: "",
+  role: "registrar",
+  permissions: {
+    modules: { ...ROLE_PRESETS.registrar.modules },
+    institutions: { ...ROLE_PRESETS.registrar.institutions },
+  },
+};
 
 // ─── Image Upload Field ────────────────────────────────────────────────────────
 function ImageUploadField({ currentImage, onFileChange, onRemove }) {
@@ -135,6 +151,16 @@ const validateStaff = (data) => {
     errors.notes = "یادښتونه باید د ۵۰۰ توري څخه لږ وي";
   }
 
+  if (data.hasSystemAccess) {
+    if (!data.username?.trim()) errors.username = "د کارن نوم اړین دی";
+    if (!data.isEditing && !data.password?.trim()) errors.password = "پاسورډ اړین دی";
+    if (data.password && data.password.length < 6) errors.password = "پاسورډ باید لږ تر لږه ۶ توري ولري";
+    const moduleCount = Object.values(data.permissions?.modules || {}).filter(Boolean).length;
+    if (moduleCount === 0) errors.permissions = "لږ تر لږه یو ماژول وټاکئ";
+    const instCount = Object.values(data.permissions?.institutions || {}).filter(Boolean).length;
+    if (instCount === 0) errors.institutions = "لږ تر لږه یوه اداره وټاکئ";
+  }
+
   return errors;
 };
 
@@ -146,13 +172,20 @@ const STAFF_FILTERS = [
   { key: "position",       label: "مسئولیت",      type: "input",  placeholder: "مسئولیت..." },
   { key: "staffType",      label: "د کارمند ډول", type: "select", options: STAFF_TYPES.map(({ value, label }) => ({ value, label })) },
   { key: "joiningYear",    label: "د شمولیت کال", type: "shamsiYear", placeholder: "د شمولیت کال" },
+  { key: "status",         label: "حالت",          type: "select", options: [
+    { value: "active", label: "فعال" },
+    { value: "inactive", label: "غیر فعال" },
+  ]},
 ];
 
 export default function StaffPage() {
+  const { isAdmin } = usePermissions();
   const [staff, setStaff]               = useState([]);
   const [staffOpen, setStaffOpen]       = useState(false);
   const [viewOpen, setViewOpen]         = useState(false);
   const [deleteOpen, setDeleteOpen]     = useState(false);
+  const [statusOpen, setStatusOpen]     = useState(false);
+  const [statusTarget, setStatusTarget] = useState(null);
   const [form, setForm]                 = useState(EMPTY_STAFF);
   const [selected, setSelected]         = useState(null);
   const [filters, setFilters]           = useState({});
@@ -163,17 +196,20 @@ export default function StaffPage() {
   
   // Pagination states
   const [staffPage, setStaffPage]       = useState(1);
-  const [pagination, setPagination]     = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [pagination, setPagination]     = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [exportLoading, setExportLoading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [resetPwOpen, setResetPwOpen] = useState(false);
+  const [resetPwValue, setResetPwValue] = useState("");
+  const [resetPwLoading, setResetPwLoading] = useState(false);
 
   const fetchStaff = async () => {
     try {
       setLoading(true);
-      const response = await staffApi.getAllStaff({ ...filters, page: staffPage, limit: 12 });
+      const response = await staffApi.getAllStaff({ ...filters, page: staffPage, limit: 10 });
       setStaff(response.data.staff || []);
-      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 12 });
+      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
       console.error("Error fetching staff:", error);
       toast.error(error.message || "د کارمندانو په ترلاسه کولو کې تېروتنه");
@@ -184,15 +220,7 @@ export default function StaffPage() {
 
   // Fetch staff on mount and when filters or page change
   useEffect(() => {
-    // Set default filter to current year if no filters are set
-    const currentYear = new Date().getFullYear();
-    const defaultFilters = Object.keys(filters).length === 0 ? { joiningYear: currentYear } : filters;
-    
-    if (JSON.stringify(defaultFilters) !== JSON.stringify(filters)) {
-      setFilters(defaultFilters);
-    } else {
-      fetchStaff();
-    }
+    fetchStaff();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, staffPage]);
 
@@ -218,6 +246,48 @@ export default function StaffPage() {
     }
   };
 
+  const applyRole = (role) => {
+    const preset = ROLE_PRESETS[role];
+    if (!preset) return;
+    setForm((p) => ({
+      ...p,
+      role,
+      permissions: {
+        modules: { ...preset.modules },
+        institutions: { ...preset.institutions },
+      },
+    }));
+  };
+
+  const toggleModule = (key) => {
+    setForm((p) => ({
+      ...p,
+      role: "custom",
+      permissions: {
+        ...p.permissions,
+        modules: {
+          ...p.permissions.modules,
+          [key]: !p.permissions.modules?.[key],
+        },
+      },
+    }));
+  };
+
+  const toggleInstitution = (key) => {
+    setForm((p) => ({
+      ...p,
+      permissions: {
+        ...p.permissions,
+        institutions: {
+          ...p.permissions.institutions,
+          [key]: !p.permissions.institutions?.[key],
+        },
+      },
+    }));
+  };
+
+  const permCount = (perms) => Object.values(perms?.modules || {}).filter(Boolean).length;
+
   const openEditStaff = (s) => { 
     setForm({ 
       name: s.name || "",
@@ -230,6 +300,15 @@ export default function StaffPage() {
       notes: s.notes || "",
       image: s.image || null,
       removeImage: false,
+      hasSystemAccess: Boolean(s.hasSystemAccess),
+      username: s.username || "",
+      password: "",
+      role: s.role || "custom",
+      permissions: s.permissions || {
+        modules: {},
+        institutions: { School: true, Center: false, Madrasa: false },
+      },
+      isEditing: true,
     }); 
     setErrors({});
     setStaffImageFile(null);
@@ -238,8 +317,33 @@ export default function StaffPage() {
     setStaffOpen(true); 
   };
   
+  const openResetPassword = (s) => {
+    setSelected(s);
+    setResetPwValue("");
+    setResetPwOpen(true);
+  };
+
+  const handleResetPassword = async () => {
+    if (!selected?.id) return;
+    if (!resetPwValue || resetPwValue.length < 6) {
+      toast.error("پاسورډ باید لږ تر لږه ۶ توري ولري");
+      return;
+    }
+    setResetPwLoading(true);
+    try {
+      await staffApi.resetStaffPassword(selected.id, resetPwValue);
+      toast.success("پاسورډ بریالۍ بدل شو");
+      setResetPwOpen(false);
+      setResetPwValue("");
+    } catch (error) {
+      toast.error(error.message || "د پاسورډ بدلولو کې تېروتنه");
+    } finally {
+      setResetPwLoading(false);
+    }
+  };
+
   const openAddStaff = () => {
-    setForm({ ...EMPTY_STAFF });
+    setForm({ ...EMPTY_STAFF, isEditing: false });
     setErrors({});
     setStaffImageFile(null);
     setIsEditing(false);
@@ -257,8 +361,25 @@ export default function StaffPage() {
   const openViewStaff = (s) => { setSelected(s); setViewOpen(true); };
   const openDeleteStaff = (s) => { setSelected(s); setDeleteOpen(true); };
 
+  const openToggleStatus = (s) => {
+    setStatusTarget(s);
+    setStatusOpen(true);
+  };
+
+  const handleToggleStatus = async () => {
+    if (!statusTarget) return;
+    const newStatus = statusTarget.status === "inactive" ? "active" : "inactive";
+    try {
+      await staffApi.toggleStaffStatus(statusTarget.id, newStatus);
+      toast.success(newStatus === "active" ? "کارمند فعال شو" : "کارمند غیر فعال شو");
+      fetchStaff();
+    } catch (error) {
+      toast.error(error.message || "د حالت بدلولو کې تېروتنه");
+    }
+  };
+
   const handleSaveStaff = async () => {
-    const validationErrors = validateStaff(form);
+    const validationErrors = validateStaff({ ...form, isEditing });
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
@@ -266,7 +387,7 @@ export default function StaffPage() {
 
     try {
       setLoading(true);
-      const { image: _img, removeImage, ...staffData } = form;
+      const { image: _img, removeImage, isEditing: _edit, ...staffData } = form;
       
       if (isEditing && selected?.id) {
         const response = await staffApi.updateStaff(selected.id, { ...staffData, removeImage: form.removeImage }, staffImageFile);
@@ -350,24 +471,27 @@ export default function StaffPage() {
       flex: 1.3,
       minWidth: 160,
     },
-    { 
-      field: "phone", 
+    {
+      field: "phone",
       headerName: "ټېلیفون",
       flex: 1.1,
       minWidth: 140,
+      hideOnMobile: true,
     },
-    { 
-      field: "position", 
+    {
+      field: "position",
       headerName: "مسئولیت",
       flex: 1.2,
       minWidth: 150,
+      hideOnMobile: true,
       valueGetter: (params) => params.data?.position || params.data?.role || "—",
     },
-    { 
-      field: "staffType", 
+    {
+      field: "staffType",
       headerName: "ډول",
       flex: 1,
       minWidth: 120,
+      hideOnMobile: true,
       valueFormatter: (params) => {
         if (!params.value || !Array.isArray(params.value)) return "—";
         return params.value.map(type => {
@@ -400,8 +524,8 @@ export default function StaffPage() {
     { 
       field: "actions", 
       headerName: "",
-      flex: 0.8,
-      minWidth: 120,
+      flex: 1,
+      minWidth: 150,
       sortable: false,
       filter: false,
       cellRenderer: (params) => {
@@ -422,6 +546,22 @@ export default function StaffPage() {
             >
               <Pencil className="size-3.5" />
             </button>
+            {s.hasSystemAccess && isAdmin && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openResetPassword(s); }}
+                title="پاسورډ بیا تنظیمول"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+              >
+                <KeyRound className="size-3.5" />
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); openToggleStatus(s); }}
+              title={s.status === "inactive" ? "فعالول" : "غیر فعالول"}
+              className={`p-1.5 rounded hover:bg-muted ${s.status === "inactive" ? "text-success" : "text-warning"}`}
+            >
+              {s.status === "inactive" ? <UserCheck className="size-3.5" /> : <UserX className="size-3.5" />}
+            </button>
             <button 
               onClick={(e) => { e.stopPropagation(); openDeleteStaff(s); }} 
               title="ړنګول" 
@@ -433,7 +573,7 @@ export default function StaffPage() {
         );
       }
     },
-  ], []);
+  ], [isAdmin]);
 
   const DV = ({ label, value }) => (
     <div><p className="text-[11px] text-muted-foreground">{label}</p><p className="text-sm font-medium">{value || "—"}</p></div>
@@ -441,7 +581,7 @@ export default function StaffPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="کارمندان" subtitle="د کارمندانو اداره او ثبت"
+      <PageHeader title="کارمندان" subtitle="د کارمندانو اداره، د سیسټم لاسرسی او اجازې"
         actions={
           <button onClick={openAddStaff} className="text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 flex items-center gap-1.5">
             <Plus className="size-3.5" /> نوی کارمند
@@ -449,7 +589,12 @@ export default function StaffPage() {
         }
       />
 
-      <FilterBar filters={STAFF_FILTERS} onApply={(f) => { setFilters(f); setStaffPage(1); }} onClear={() => { setFilters({}); setStaffPage(1); }} />
+      <FilterBar
+        filters={STAFF_FILTERS}
+        defaultValues={{ joiningYear: String(currentShamsiYear()) }}
+        onApply={(f) => { setFilters(f); setStaffPage(1); }}
+        onClear={(cleared) => { setFilters(cleared || { joiningYear: String(currentShamsiYear()) }); setStaffPage(1); }}
+      />
 
       <AgGridTable
         columnDefs={staffColumnDefs}
@@ -458,7 +603,7 @@ export default function StaffPage() {
         emptyText="هیڅ کارمند ونه موندل شو"
         searchPlaceholder="د کارمند نوم، ټېلیفون..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={staffPage}
         totalPages={pagination.totalPages}
@@ -491,6 +636,28 @@ export default function StaffPage() {
               <DV label="معاش" value={selected.salary ? `AFN ${Number(selected.salary).toLocaleString()}` : "—"} />
               <DV label="د شمولیت نېټه" value={selected.joiningDate || selected.joinedAt || selected.createdAt} />
               <DV label="حالت" value={selected.status === "active" ? "فعال" : "غیر فعال"} />
+              <DV label="د سیسټم لاسرسی" value={selected.hasSystemAccess ? "هو" : "نه"} />
+              {selected.hasSystemAccess && (
+                <>
+                  <DV label="کارن نوم" value={selected.username} />
+                  <DV label="رول" value={ROLE_PRESETS[selected.role]?.label || selected.role} />
+                </>
+              )}
+              {selected.hasSystemAccess && (
+                <div className="col-span-2">
+                  <p className="text-[11px] text-muted-foreground mb-2">اجازې ({permCount(selected.permissions)} ماژول)</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MODULES.filter((m) => selected.permissions?.modules?.[m.key]).map((m) => (
+                      <Badge key={m.key} variant="info">{m.label}</Badge>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {INSTITUTIONS.filter((i) => selected.permissions?.institutions?.[i.key]).map((i) => (
+                      <Badge key={i.key} variant="muted">{i.label}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selected.notes && <div className="col-span-2"><DV label="یادښتونه" value={selected.notes} /></div>}
             </div>
             
@@ -522,7 +689,7 @@ export default function StaffPage() {
       />
 
       {/* ── Staff form modal ──────────────────────────────────────────── */}
-      <ErpModal open={staffOpen} onOpenChange={setStaffOpen} title={isEditing ? "کارمند سمول" : "کارمند ثبتول"} size="md"
+      <ErpModal open={staffOpen} onOpenChange={setStaffOpen} title={isEditing ? "کارمند سمول" : "کارمند ثبتول"} size="lg"
         footer={<>
           <button onClick={() => setStaffOpen(false)} className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted" disabled={loading}>لغوه</button>
           <button onClick={handleSaveStaff} className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded font-medium" disabled={loading}>
@@ -581,8 +748,122 @@ export default function StaffPage() {
               onRemove={() => { setStaffImageFile(null); setF("removeImage", true); setF("image", null); }}
             />
           </div>
+
+          <div className="col-span-2 border-t border-border pt-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hasSystemAccess}
+                onChange={(e) => setF("hasSystemAccess", e.target.checked)}
+                className="rounded border-input"
+              />
+              <span className="text-sm font-medium">د سیسټم لاسرسی (ننوتل او اجازې)</span>
+            </label>
+          </div>
+
+          {form.hasSystemAccess && (
+            <>
+              <div className="col-span-2 flex flex-wrap gap-2">
+                <span className="text-xs text-muted-foreground w-full font-medium">رول (د لاسرسي کچه)</span>
+                {Object.entries(ROLE_PRESETS).filter(([k]) => k !== "admin").map(([key, r]) => (
+                  <button key={key} type="button" onClick={() => applyRole(key)}
+                    className={cn(
+                      "px-3 py-1.5 rounded border text-xs font-medium transition-all",
+                      form.role === key ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
+                    )}>
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="col-span-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                    <ShieldCheck className="size-3.5" /> د ماژولونو اجازې
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">{permCount(form.permissions)} / {MODULES.length}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-input rounded bg-muted/30 max-h-48 overflow-y-auto">
+                  {MODULES.map((m) => {
+                    const active = !!form.permissions?.modules?.[m.key];
+                    return (
+                      <button key={m.key} type="button" onClick={() => toggleModule(m.key)}
+                        className={cn(
+                          "flex items-start gap-2 p-2 rounded border text-left transition-all text-xs",
+                          active ? "bg-primary/10 border-primary/40" : "bg-background border-input hover:bg-muted"
+                        )}>
+                        <span className={cn("mt-0.5 size-3 rounded border shrink-0", active ? "bg-primary border-primary" : "border-muted-foreground/40")} />
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {errors.permissions && <p className="text-xs text-destructive mt-1">{errors.permissions}</p>}
+              </div>
+
+              <div className="col-span-2">
+                <span className="text-xs text-muted-foreground font-medium block mb-2">د ادارو لاسرسی (ښوونځی / مرکز / مدرسه)</span>
+                <div className="flex gap-2">
+                  {INSTITUTIONS.map(({ key, label }) => {
+                    const active = !!form.permissions?.institutions?.[key];
+                    return (
+                      <button key={key} type="button" onClick={() => toggleInstitution(key)}
+                        className={cn(
+                          "flex-1 py-2 rounded border text-sm font-medium transition-all",
+                          active ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
+                        )}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {errors.institutions && <p className="text-xs text-destructive mt-1">{errors.institutions}</p>}
+              </div>
+
+              <div>
+                <F label="کارن نوم"><Input value={form.username} handleChanges={(e) => setF("username", e.target.value)} placeholder="username" /></F>
+                {errors.username && <p className="text-xs text-destructive mt-1">{errors.username}</p>}
+              </div>
+              <div>
+                <F label={isEditing ? "نوی پاسورډ (اختیاري)" : "پاسورډ"}>
+                  <Input type="password" value={form.password} handleChanges={(e) => setF("password", e.target.value)} placeholder="••••••••" />
+                </F>
+                {errors.password && <p className="text-xs text-destructive mt-1">{errors.password}</p>}
+              </div>
+            </>
+          )}
         </div>
       </ErpModal>
+
+      <ErpModal
+        open={resetPwOpen}
+        onOpenChange={setResetPwOpen}
+        title="د کارمند پاسورډ بیا تنظیمول"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setResetPwOpen(false)} disabled={resetPwLoading} className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted disabled:opacity-50">لغوه</button>
+            <button onClick={handleResetPassword} disabled={resetPwLoading} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded disabled:opacity-50">
+              {resetPwLoading ? "په پروسس کې..." : "ساتل"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            د <span className="font-medium text-foreground">{selected?.name}</span> لپاره نوی پاسورډ
+          </p>
+          <Input type="password" label="نوی پاسورډ" value={resetPwValue} handleChanges={(e) => setResetPwValue(e.target.value)} disabled={resetPwLoading} placeholder="لږ تر لږه ۶ توري" />
+        </div>
+      </ErpModal>
+
+      <ConfirmStatus
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        onConfirm={handleToggleStatus}
+        title={statusTarget?.name}
+        action={statusTarget?.status === "inactive" ? "activate" : "deactivate"}
+      />
 
       <ConfirmDelete
         open={deleteOpen}

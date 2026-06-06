@@ -52,6 +52,7 @@ const EMPTY_FORM = {
   username: "", password: "",
   status: "active",
   joinedAt: new Date().toISOString().slice(0, 10),
+  academicYear: String(new Date().getFullYear()),
   notes: "",
 };
 
@@ -76,7 +77,7 @@ export default function StaffPage() {
   const [selected, setSelected]     = useState(null);
   const [isEdit, setIsEdit]         = useState(false);
   const [pw, setPw]                 = useState({ newPw: "", confirmPw: "" });
-  const [filters, setFilters]       = useState({});
+  const [filters, setFilters]       = useState({ academicYear: String(new Date().getFullYear()) }); // Initialize with default year
 
   // Fetch staff from API
   const fetchStaff = async () => {
@@ -112,7 +113,7 @@ export default function StaffPage() {
     }));
 
   const openAdd = () => {
-    setForm({ ...EMPTY_FORM, joinedAt: new Date().toISOString().slice(0, 10), permissions: { ...ROLE_PRESETS.registrar.perms } });
+    setForm({ ...EMPTY_FORM, joinedAt: new Date().toISOString().slice(0, 10), academicYear: String(new Date().getFullYear()), permissions: { ...ROLE_PRESETS.registrar.perms } });
     setIsEdit(false);
     setFormOpen(true);
   };
@@ -195,7 +196,12 @@ export default function StaffPage() {
         }
       />
 
-      <FilterBar filters={STAFF_FILTERS} onApply={(f) => { setFilters(f); setPage(1); }} onClear={() => { setFilters({}); setPage(1); }} />
+      <FilterBar 
+        filters={STAFF_FILTERS}
+        defaultValues={{ academicYear: String(new Date().getFullYear()) }}
+        onApply={(f) => { setFilters(f); setPage(1); }} 
+        onClear={() => { setFilters({}); setPage(1); }} 
+      />
 
       <AgGridTable
         columnDefs={columnDefs}
@@ -204,7 +210,7 @@ export default function StaffPage() {
         emptyText="هیڅ کارمند ونه موندل شو"
         searchPlaceholder="د کارمند نوم، ټېلیفون..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}
@@ -233,6 +239,7 @@ export default function StaffPage() {
             <F label="ټېلیفون" opt><Input value={form.phone} handleChanges={(e) => set("phone", e.target.value)} placeholder="+93 7XX XXX XXX" /></F>
             <F label="تذکیره نمبر" opt><Input value={form.idCardNumber} handleChanges={(e) => set("idCardNumber", e.target.value)} placeholder="تذکیره نمبر" /></F>
             <F label="د شمولیت نېټه"><Input type="date" value={form.joinedAt} handleChanges={(e) => set("joinedAt", e.target.value)} /></F>
+            <F label="تعلیمي کال"><Input value={form.academicYear} handleChanges={(e) => set("academicYear", e.target.value)} placeholder="۱۴۰۳" /></F>
             <F label="حالت">
               <select value={form.status} onChange={(e) => set("status", e.target.value)} className={SEL}>
                 <option value="active">فعال</option>
@@ -325,6 +332,7 @@ export default function StaffPage() {
               <DV label="رول"           value={ROLE_PRESETS[selected.role]?.label ?? selected.role} />
               <DV label="حالت"          value={selected.status === "active" ? "فعال" : "غیر فعال"} />
               <DV label="د شمولیت نېټه" value={selected.joinedAt} />
+              <DV label="تعلیمي کال"    value={selected.academicYear} />
               <DV label="یوزرنیم"       value={selected.username} />
             </div>
 

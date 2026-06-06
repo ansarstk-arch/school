@@ -1,14 +1,20 @@
 import { body, query, param } from "express-validator";
 
-// ─── SMS SETTINGS VALIDATORS ───────────────────────────────────────────────────
-export const upsertSmsSettingsValidator = [
+const MESSAGE_TYPES = ["Absent", "Present", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"];
+
+// ─── SMS ENDPOINT VALIDATORS ───────────────────────────────────────────────────
+export const upsertSmsEndpointValidator = [
+  body("slot")
+    .isInt({ min: 1, max: 3 })
+    .withMessage("د فون سلاټ باید ۱، ۲ یا ۳ وي"),
+
   body("apiUrl")
     .trim()
     .notEmpty()
-    .withMessage("د API پته اړینه ده")
-    .isURL({ require_protocol: true })
-    .withMessage("د API پته سمه نه ده"),
+    .withMessage("د API بشپړه پته اړینه ده"),
 ];
+
+export const upsertSmsSettingsValidator = upsertSmsEndpointValidator;
 
 export const testSmsConnectionValidator = [
   body("testPhone")
@@ -18,9 +24,10 @@ export const testSmsConnectionValidator = [
     .matches(/^[0-9+\-\s()]+$/)
     .withMessage("ټیلیفون نمبر سم نه دی"),
 
-  body("testMessage")
-    .optional()
-    .trim(),
+  body("testMessage").optional().trim(),
+
+  body("endpointId").optional().isInt({ min: 1 }),
+  body("slot").optional().isInt({ min: 1, max: 3 }),
 ];
 
 // ─── SMS TEMPLATES VALIDATORS ──────────────────────────────────────────────────
@@ -29,191 +36,110 @@ export const createSmsTemplateValidator = [
     .trim()
     .notEmpty()
     .withMessage("د کالبد ډول اړین دی")
-    .isIn(["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"])
+    .isIn(MESSAGE_TYPES)
     .withMessage("د کالبد ډول سم نه دی"),
 
   body("templateName")
     .trim()
     .notEmpty()
     .withMessage("د کالبد نوم اړین دی")
-    .isLength({ min: 3, max: 100 })
-    .withMessage("د کالبد نوم باید د ۳ څخه تر ۱۰۰ توري وي"),
+    .isLength({ min: 3, max: 100 }),
 
   body("messagePs")
     .trim()
     .notEmpty()
     .withMessage("پښتو پیغام اړین دی")
-    .isLength({ min: 10, max: 500 })
-    .withMessage("پیغام باید د ۱۰ څخه تر ۵۰۰ توري وي"),
+    .isLength({ min: 10, max: 500 }),
 
-  body("messageDa")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("پیغام باید د ۵۰۰ توري څخه لږ وي"),
-
-  body("variables")
-    .optional(),
+  body("messageDa").optional().trim().isLength({ max: 500 }),
+  body("variables").optional(),
 ];
 
 export const updateSmsTemplateValidator = [
-  param("id")
-    .isInt({ min: 1 })
-    .withMessage("سم ID اړین دی"),
-
-  body("templateType")
-    .optional()
-    .isIn(["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"])
-    .withMessage("د کالبد ډول سم نه دی"),
-
-  body("templateName")
-    .optional()
-    .trim()
-    .isLength({ min: 3, max: 100 })
-    .withMessage("د کالبد نوم باید د ۳ څخه تر ۱۰۰ توري وي"),
-
-  body("messagePs")
-    .optional()
-    .trim()
-    .isLength({ min: 10, max: 500 })
-    .withMessage("پیغام باید د ۱۰ څخه تر ۵۰۰ توري وي"),
-
-  body("messageDa")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("پیغام باید د ۵۰۰ توري څخه لږ وي"),
+  param("id").isInt({ min: 1 }),
+  body("templateType").optional().isIn(MESSAGE_TYPES),
+  body("templateName").optional().trim().isLength({ min: 3, max: 100 }),
+  body("messagePs").optional().trim().isLength({ min: 10, max: 500 }),
+  body("messageDa").optional().trim().isLength({ max: 500 }),
 ];
 
 export const deleteSmsTemplateValidator = [
-  param("id")
-    .isInt({ min: 1 })
-    .withMessage("سم ID اړین دی"),
+  param("id").isInt({ min: 1 }),
 ];
 
-// ─── SMS SENDING VALIDATORS ────────────────────────────────────────────────────
+// ─── SMS RECIPIENTS VALIDATORS ─────────────────────────────────────────────────
 export const getAbsentRecipientsValidator = [
   query("institutionType")
     .trim()
     .notEmpty()
-    .withMessage("د موسسې ډول اړین دی")
-    .isIn(["School", "Center", "Madrasa"])
-    .withMessage("د موسسې ډول سم نه دی"),
-
-  query("date")
-    .optional()
-    .matches(/^\d{4}-\d{2}-\d{2}$/)
-    .withMessage("نیټه باید YYYY-MM-DD فارمټ کې وي"),
-
-  query("classId")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("د ټولګي ID سم نه دی"),
+    .isIn(["School", "Center", "Madrasa"]),
+  query("date").optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+  query("classId").optional().isInt({ min: 1 }),
 ];
 
+export const getPresentRecipientsValidator = getAbsentRecipientsValidator;
+
 export const getFeeRecipientsValidator = [
-  query("institutionType")
-    .trim()
-    .notEmpty()
-    .withMessage("د موسسې ډول اړین دی")
-    .isIn(["School", "Center", "Madrasa"])
-    .withMessage("د موسسې ډول سم نه دی"),
-
-  query("month")
-    .optional()
-    .matches(/^\d{4}-\d{2}$/)
-    .withMessage("میاشت باید YYYY-MM فارمټ کې وي"),
-
-  query("academicYear")
-    .optional()
-    .trim(),
+  query("institutionType").trim().notEmpty().isIn(["School", "Center", "Madrasa"]),
+  query("month").optional().matches(/^\d{4}-\d{2}$/),
+  query("academicYear").optional().trim(),
 ];
 
 export const getExamRecipientsValidator = [
-  query("institutionType")
-    .trim()
-    .notEmpty()
-    .withMessage("د موسسې ډول اړین دی")
-    .isIn(["School", "Center", "Madrasa"])
-    .withMessage("د موسسې ډول سم نه دی"),
-
-  query("examId")
-    .notEmpty()
-    .withMessage("د ازموینې ID اړین دی")
-    .isInt({ min: 1 })
-    .withMessage("د ازموینې ID سم نه دی"),
-
-  query("resultType")
-    .trim()
-    .notEmpty()
-    .withMessage("د نتیجې ډول اړین دی")
-    .isIn(["pass", "fail", "top"])
-    .withMessage("د نتیجې ډول سم نه دی"),
-
-  query("classId")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("د ټولګي ID سم نه دی"),
+  query("institutionType").trim().notEmpty().isIn(["School", "Center", "Madrasa"]),
+  query("examId").notEmpty().isInt({ min: 1 }),
+  query("resultType").trim().notEmpty().isIn(["pass", "fail", "top"]),
+  query("classId").optional().isInt({ min: 1 }),
 ];
 
-export const sendSmsToParentsValidator = [
-  body("messageType")
-    .trim()
-    .notEmpty()
-    .withMessage("د پیغام ډول اړین دی")
-    .isIn(["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"])
-    .withMessage("د پیغام ډول سم نه دی"),
+const isValidRecipientId = (value) => {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1) return true;
+  if (typeof value === "string" && value.trim().length > 0) return true;
+  return false;
+};
 
-  body("recipients")
-    .isArray({ min: 1 })
-    .withMessage("لږ تر لږه یو ترلاسه کوونکی اړین دی"),
-
+const recipientShape = [
   body("recipients.*.parentId")
-    .isInt({ min: 1 })
-    .withMessage("د مور/پلار ID سم نه دی"),
+    .custom((value) => isValidRecipientId(value))
+    .withMessage("د مور/پلار پېژندنه سمه نه ده"),
+  body("recipients.*.parentPhone").trim().notEmpty(),
+];
 
-  body("recipients.*.parentPhone")
-    .trim()
-    .notEmpty()
-    .withMessage("ټیلیفون نمبر اړین دی"),
+// ─── SMS SENDING VALIDATORS ────────────────────────────────────────────────────
+export const sendSmsToParentsValidator = [
+  body("endpointId").isInt({ min: 1 }).withMessage("فون وټاکئ"),
+  body("messageType").trim().notEmpty().isIn(MESSAGE_TYPES),
+  body("recipients").isArray({ min: 1 }),
+  ...recipientShape,
+  body("templateId").optional().isInt({ min: 1 }),
+  body("customMessage").optional().trim().isLength({ min: 10, max: 500 }),
+  body("attendanceDate").optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+];
 
-  body("templateId")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("د کالبد ID سم نه دی"),
-
-  body("customMessage")
-    .optional()
-    .trim()
-    .isLength({ min: 10, max: 500 })
-    .withMessage("پیغام باید د ۱۰ څخه تر ۵۰۰ توري وي"),
+export const sendSmsSingleValidator = [
+  body("endpointId").isInt({ min: 1 }).withMessage("فون وټاکئ"),
+  body("messageType").trim().notEmpty().isIn(MESSAGE_TYPES),
+  body("recipient").notEmpty(),
+  body("recipient.parentId")
+    .custom((value) => isValidRecipientId(value))
+    .withMessage("د مور/پلار پېژندنه سمه نه ده"),
+  body("recipient.parentPhone").trim().notEmpty(),
+  body("templateId").optional().isInt({ min: 1 }),
+  body("customMessage").optional().trim().isLength({ min: 10, max: 500 }),
+  body("batchId").optional().trim(),
+  body("attendanceDate").optional().matches(/^\d{4}-\d{2}-\d{2}$/),
 ];
 
 export const retrySmsValidator = [
-  param("id")
-    .isInt({ min: 1 })
-    .withMessage("سم ID اړین دی"),
+  param("id").isInt({ min: 1 }),
+  body("endpointId").optional().isInt({ min: 1 }),
 ];
 
-// ─── SMS LOGS VALIDATORS ───────────────────────────────────────────────────────
 export const getSmsLogsValidator = [
-  query("page")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("د پاڼې نمبر سم نه دی"),
-
-  query("limit")
-    .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage("د حد نمبر سم نه دی"),
-
-  query("status")
-    .optional()
-    .isIn(["Pending", "Sent", "Failed"])
-    .withMessage("د حالت ډول سم نه دی"),
-
-  query("messageType")
-    .optional()
-    .isIn(["Absent", "Fee", "ExamPass", "ExamFail", "Homework", "Custom"])
-    .withMessage("د پیغام ډول سم نه دی"),
+  query("page").optional().isInt({ min: 1 }),
+  query("limit").optional().isInt({ min: 1, max: 100 }),
+  query("status").optional().isIn(["Pending", "Sent", "Failed"]),
+  query("messageType").optional().isIn(MESSAGE_TYPES),
+  query("year").optional().isInt({ min: 1300, max: 1500 }),
+  query("studentId").optional().isInt({ min: 1 }),
 ];

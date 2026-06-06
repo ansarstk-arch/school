@@ -32,7 +32,7 @@ export default function SubjectsPage() {
   const [viewOpen, setViewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState({ academicYear: ACTIVE_SESSION }); // Initialize with default year
   const [isEditing, setIsEditing] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);

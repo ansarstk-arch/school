@@ -6,6 +6,8 @@ import { parseAttendanceQrCode } from "../../utils/attendanceQr.util.js";
 import ApiError from "../../utils/ApiError.util.js";
 import { getCurrentAfghanDate, getAttendanceDateForScan, isValidAttendanceDate } from "../../utils/dateHandler.util.js";
 import { generateExcelReport, generatePDFReport } from "../../utils/attendanceExport.util.js";
+import { currentShamsiYear } from "../../lib/afghan-date.js";
+import { isPastCutoffTime } from "../../utils/attendanceTime.util.js";
 
 // Helper: Get person details based on attendance type
 const getPersonDetails = async (attendanceType, personId) => {
@@ -73,6 +75,16 @@ const getPersonDetails = async (attendanceType, personId) => {
 
   return { person, personName };
 };
+
+// ─── GET SERVER TODAY DATE ─────────────────────────────────────────────────────
+
+export const getServerToday = asyncHandler(async (req, res) => {
+  const today = getCurrentAfghanDate();
+  res.json({
+    success: true,
+    data: { today },
+  });
+});
 
 // ─── GET ALL ATTENDANCE ────────────────────────────────────────────────────────
 
@@ -226,10 +238,12 @@ export const getPeopleForAttendance = asyncHandler(async (req, res) => {
         classId: students.classId,
       })
       .from(students)
-      .where(eq(students.classId, parseInt(classId)))
+      .where(and(eq(students.classId, parseInt(classId)), eq(students.status, "active")))
       .orderBy(students.rollNumber, students.fullName);
 
   } else if (attendanceType === "Staff") {
+    const currentYear = String(currentShamsiYear());
+
     const staffRows = await db
       .select({
         id: staff.id,
@@ -239,7 +253,12 @@ export const getPeopleForAttendance = asyncHandler(async (req, res) => {
         staffType: staff.staffType,
       })
       .from(staff)
-      .where(eq(staff.status, "active"))
+      .where(
+        and(
+          eq(staff.status, "active"),
+          sql`(${staff.academicYear} = ${currentYear} OR ${staff.academicYear} IS NULL OR ${staff.academicYear} = '')`
+        )
+      )
       .orderBy(staff.name);
 
     const teacherRows = await db
@@ -250,6 +269,7 @@ export const getPeopleForAttendance = asyncHandler(async (req, res) => {
         position: teachers.education,
       })
       .from(teachers)
+      .where(eq(teachers.status, "active"))
       .orderBy(teachers.name);
 
     people = [
@@ -505,7 +525,7 @@ export const qrAttendance = asyncHandler(async (req, res) => {
     );
 
   if (existingAttendance) {
-    // Allow updating if status is Absent
+    // Allow updating from Absent to Present via QR scan
     if (existingAttendance.status === "Absent") {
       await db
         .update(attendance)
@@ -541,50 +561,57 @@ export const qrAttendance = asyncHandler(async (req, res) => {
       });
     }
 
-    if (existingAttendance.scannedAt) {
-      const lastScanTime = new Date(existingAttendance.scannedAt).getTime();
-      const timeDiff = (Date.now() - lastScanTime) / 1000;
-
-      if (timeDiff < 5) {
-        return res.json({
-          success: true,
-          message: `${personName} - دمخه سکین شوی`,
-          data: {
-            attendance: { ...existingAttendance, personName },
-            action: "duplicate_scan",
-            timeSinceLastScan: Math.round(timeDiff),
-          },
-        });
-      }
+    // If already present, prevent duplicate scans
+    if (existingAttendance.status === "Present") {
+      return res.json({
+        success: true,
+        message: `${personName} - د نن ورځې حاضري مخکې ثبت شوې ده`,
+        data: {
+          attendance: { ...existingAttendance, personName },
+          action: "already_present",
+        },
+      });
     }
 
+    // For other statuses (Leave, etc.), inform the user
     return res.json({
       success: true,
-      message: `${personName} - د نن ورځې حاضري مخکې اخیستل شوې`,
+      message: `${personName} - د نن ورځې حاضري مخکې اخیستل شوې (${existingAttendance.status})`,
       data: {
         attendance: { ...existingAttendance, personName },
-        action: "already_marked_today",
+        action: "already_marked",
       },
     });
   } else {
+    let scanStatus = "Present";
+    let scanNotes = null;
+
+    if (attendanceType === "Student") {
+      const institutionForCutoff = parsed.institutionType || "School";
+      const late = await isPastCutoffTime(institutionForCutoff);
+      if (late) {
+        scanStatus = "Absent";
+        scanNotes = "Auto-marked absent — arrived after cutoff (server time)";
+      }
+    }
+
     try {
       await db.insert(attendance).values({
         attendanceType,
         personId,
         institutionType:
           attendanceType === "Student"
-            ? person.classId
-              ? "School"
-              : null
+            ? parsed.institutionType || (person.classId ? "School" : null)
             : null,
         classId:
           attendanceType === "Student"
             ? classId || person.classId || null
             : null,
         attendanceDate: attendanceDateValue,
-        status: "Present",
+        status: scanStatus,
         attendanceMethod: "QR",
         scannedAt: now,
+        notes: scanNotes,
         takenBy: userId,
       });
     } catch (error) {
@@ -613,7 +640,11 @@ export const qrAttendance = asyncHandler(async (req, res) => {
       )
     );
 
-  let message = `${personName} - حاضر ثبت شو ✓`;
+  const finalStatus = updatedAttendance?.status;
+  let message =
+    finalStatus === "Absent"
+      ? `${personName} - د وخت وروسته راغلی، غیر حاضر ثبت شو`
+      : `${personName} - حاضر ثبت شو ✓`;
 
   res.json({
     success: true,
@@ -815,6 +846,7 @@ export const downloadAttendanceReport = asyncHandler(async (req, res) => {
 export default {
   getAllAttendance,
   getPeopleForAttendance,
+  getServerToday,
   bulkCreateAttendance,
   qrAttendance,
   getAttendanceStats,

@@ -7,6 +7,7 @@ import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, Pencil, Trash2, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { currentShamsiYear } from "@/lib/afghan-date";
 import {
   getAdvances,
   createAdvance,
@@ -55,10 +56,9 @@ const ADVANCE_FILTERS = [
     ],
   },
   { key: "status", label: "حالت", type: "select", options: ADVANCE_STATUS },
-  { key: "dateFrom", label: "له نېټې", type: "date" },
-  { key: "dateTo", label: "تر نېټې", type: "date" },
+  { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
 ];
-const ADVANCE_DEFAULTS = {};
+const ADVANCE_DEFAULTS = { academicYear: String(currentShamsiYear()) };
 
 /** Advances tab — embedded in payroll (salaries) page */
 export function PayrollAdvancesTab() {

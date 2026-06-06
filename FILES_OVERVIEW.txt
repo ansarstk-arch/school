@@ -1,0 +1,78 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║            📁 SCHOOL MANAGEMENT SYSTEM - FILES 📁             ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+🌟 START HERE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⭐_START_HERE.txt             👈 Read this first!
+
+
+🚀 MAIN EXECUTABLE FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INSTALL_AUTO_START.bat        ⚡ Setup auto-start (recommended)
+START_SERVER.bat              ▶️  Start server manually
+STOP_SERVER.bat               🛑 Stop running server
+UNINSTALL_AUTO_START.bat      🗑️  Remove auto-start
+
+
+🛠️ UTILITY FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CHECK_SERVER_STATUS.bat       📊 Check if server is running
+CHECK_IP_ADDRESS.bat          📍 Find your WiFi IP address
+
+
+📖 DOCUMENTATION FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMPLETE_SETUP_GUIDE.txt      📚 Complete guide (read for details)
+SYSTEM_OVERVIEW.txt           📋 System architecture
+FIREWALL_SETUP.txt            🔥 Fix connection issues
+AUTO_START_GUIDE.txt          ⚡ Auto-start details
+CREATE_DESKTOP_SHORTCUT.txt   💡 Make desktop shortcut
+README_START_HERE.txt         📖 Quick reference
+
+
+🗂️ APPLICATION FOLDERS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+backend/                      Backend server + database
+Client/                       Frontend source code
+Client/dist/                  Frontend build (served by backend)
+
+
+💡 TYPICAL USAGE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+First Time Setup:
+  1. Read: ⭐_START_HERE.txt
+  2. Run: INSTALL_AUTO_START.bat (for auto-start)
+     OR
+     Run: START_SERVER.bat (for manual start)
+  3. Access: http://localhost:3000
+
+Daily Use (with auto-start):
+  1. Turn on PC
+  2. System starts automatically
+  3. Use immediately!
+
+Daily Use (without auto-start):
+  1. Double-click: START_SERVER.bat
+  2. Access the system
+  3. Close window when done
+
+
+🎯 RECOMMENDED FOR SCHOOL SERVER:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 1: Run INSTALL_AUTO_START.bat (one-time)
+Step 2: Configure PC to not sleep
+Step 3: Done! Server ready automatically every day
+
+
+═══════════════════════════════════════════════════════════════════

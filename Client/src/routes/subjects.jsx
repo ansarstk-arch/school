@@ -6,18 +6,16 @@ import { FilterBar } from "@/components/erp/FilterBar";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
 import { SubjectForm } from "@/components/erp/SubjectForm";
 import { useState, useEffect, useMemo } from "react";
-import { Plus, Pencil, Trash2, Eye, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import * as subjectApi from "@/data/subjectApi";
 import { validateSubject } from "@/utils/subjectValidation";
 import { ACTIVE_SESSION } from "@/constants";
 import { exportSubjectsToExcel } from "@/utils/excelExport";
 import { exportSubjectsPDF } from "@/utils/pdfDownload";
-import { getAllClasses } from "@/data/classApi";
-
 const TYPES = [
   { value: "School", label: "ښوونځی", variant: "info" },
-  { value: "Center", label: "مرکز", variant: "muted" },
+  { value: "Center", label: "سینټر", variant: "muted" },
   { value: "Madrasa", label: "مدرسه", variant: "warning" },
 ];
 
@@ -27,7 +25,7 @@ const typeVariant = (v) => TYPES.find((t) => t.value === v)?.variant ?? "muted";
 const SUBJECT_FILTERS = [
   { key: "name", label: "د مضمون نوم", type: "input", placeholder: "مضمون لټون..." },
   { key: "type", label: "ډول", type: "select", options: TYPES.map(({ value, label }) => ({ value, label })) },
-  { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال..." },
+  { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
 ];
 
 const EMPTY_SUBJECT = { name: "", type: "School", classIds: [], academicYear: ACTIVE_SESSION };
@@ -44,25 +42,19 @@ export default function SubjectsPage() {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [exportLoading, setExportLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
-  const [manageSubject, setManageSubject] = useState(null);
-  const [availableClasses, setAvailableClasses] = useState([]);
-  const [selectedClassIds, setSelectedClassIds] = useState([]);
-  const [manageLoading, setManageLoading] = useState(false);
-
   const fetchSubjects = async () => {
     try {
       setLoading(true);
       const response = await subjectApi.getAllSubjects({
         ...filters,
         page,
-        limit: 12,
+        limit: 10,
       });
       setSubjects(response.data.subjects || []);
-      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 12 });
+      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
       console.error("Error fetching subjects:", error);
       toast.error(error.message || "د مضامینو په ترلاسه کولو کې تېروتنه");
@@ -98,53 +90,6 @@ export default function SubjectsPage() {
   const openDelete = (s) => {
     setSelected(s);
     setDeleteOpen(true);
-  };
-
-  const openManage = async (s) => {
-    setManageSubject(s);
-    setSelectedClassIds(s.classIds || []);
-    setManageLoading(true);
-    try {
-      const res = await getAllClasses({
-        type: s.type,
-        academicYear: s.academicYear,
-        limit: 200,
-      });
-      setAvailableClasses(res.data.classes || []);
-    } catch (error) {
-      toast.error(error.message || "د ټولګیو په ترلاسه کولو کې ستونزه");
-    } finally {
-      setManageLoading(false);
-    }
-    setManageOpen(true);
-  };
-
-  const handleManageSave = async () => {
-    if (selectedClassIds.length === 0) {
-      toast.error("لږترلږه یو ټولګی وټاکئ");
-      return;
-    }
-    setManageLoading(true);
-    try {
-      await subjectApi.updateSubject(manageSubject.id, {
-        classIds: selectedClassIds,
-      });
-      toast.success("ټولګي بریالیتوب سره تازه شول");
-      setManageOpen(false);
-      fetchSubjects();
-    } catch (error) {
-      toast.error(error.message || "د ټولګیو په تازه کولو کې ستونزه");
-    } finally {
-      setManageLoading(false);
-    }
-  };
-
-  const toggleClass = (classId) => {
-    setSelectedClassIds((prev) =>
-      prev.includes(classId)
-        ? prev.filter((id) => id !== classId)
-        : [...prev, classId]
-    );
   };
 
   const handleSaveSubject = async () => {
@@ -306,16 +251,6 @@ export default function SubjectsPage() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                openManage(s);
-              }}
-              title="ټولګي اداره کول"
-              className="p-1.5 rounded hover:bg-muted text-primary"
-            >
-              <Settings className="size-3.5" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
                 openView(s);
               }}
               title="کتل"
@@ -373,6 +308,7 @@ export default function SubjectsPage() {
 
       <FilterBar
         filters={SUBJECT_FILTERS}
+        defaultValues={{ academicYear: ACTIVE_SESSION }}
         onApply={(f) => {
           setFilters(f);
           setPage(1);
@@ -390,7 +326,7 @@ export default function SubjectsPage() {
         emptyText="هیڅ مضمون ونه موندل شو"
         searchPlaceholder="د مضمون نوم..."
         serverSidePagination={true}
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}
@@ -471,91 +407,6 @@ export default function SubjectsPage() {
           errors={errors}
           setErrors={setErrors}
         />
-      </ErpModal>
-
-      {/* Manage Classes Modal */}
-      <ErpModal
-        open={manageOpen}
-        onOpenChange={setManageOpen}
-        title={`د ټولګیو اداره کول - ${manageSubject?.name || ""}`}
-        size="lg"
-        footer={
-          <>
-            <button
-              onClick={() => setManageOpen(false)}
-              className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted"
-              disabled={manageLoading}
-            >
-              لغوه
-            </button>
-            <button
-              onClick={handleManageSave}
-              className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded font-medium"
-              disabled={manageLoading}
-            >
-              {manageLoading ? "...په ثبتیدو کې" : "خوندي کړئ"}
-            </button>
-          </>
-        }
-      >
-        {manageSubject && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3 p-3 bg-muted/30 rounded">
-              <DV label="مضمون" value={manageSubject.name} />
-              <DV label="ډول" value={typeLabel(manageSubject.type)} />
-              <DV label="تعلیمي کال" value={manageSubject.academicYear} />
-            </div>
-
-            <div>
-              <p className="text-sm font-medium mb-2">
-                ټولګي وټاکئ ({selectedClassIds.length} غوره شوي)
-              </p>
-              {manageLoading ? (
-                <p className="text-sm text-muted-foreground">لوډېږي...</p>
-              ) : availableClasses.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  د دې ډول او تعلیمي کال لپاره هیڅ ټولګی شتون نلري
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-96 overflow-y-auto p-2 border rounded">
-                  {availableClasses.map((cls) => (
-                    <label
-                      key={cls.id}
-                      className="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-muted/50 transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedClassIds.includes(cls.id)}
-                        onChange={() => toggleClass(cls.id)}
-                        className="rounded border-input"
-                      />
-                      <span className="text-sm">
-                        {cls.name}
-                        {cls.section && ` (${cls.section})`}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {selectedClassIds.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">غوره شوي ټولګي:</p>
-                <div className="flex gap-1 flex-wrap">
-                  {availableClasses
-                    .filter((c) => selectedClassIds.includes(c.id))
-                    .map((c) => (
-                      <Badge key={c.id} variant="info">
-                        {c.name}
-                        {c.section && ` (${c.section})`}
-                      </Badge>
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </ErpModal>
 
       {/* Delete Confirmation */}

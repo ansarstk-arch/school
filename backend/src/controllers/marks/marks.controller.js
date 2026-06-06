@@ -30,8 +30,6 @@ export const getAllMarks = asyncHandler(async (req, res) => {
     academicYear,
     status,
     studentId,
-    dateFrom,
-    dateTo,
     search,
     page = 1,
     limit = 12,
@@ -47,8 +45,6 @@ export const getAllMarks = asyncHandler(async (req, res) => {
   if (academicYear) conditions.push(eq(exams.academicYear, academicYear));
   if (status) conditions.push(eq(studentMarks.status, status));
   if (studentId) conditions.push(eq(studentMarks.studentId, Number(studentId)));
-  if (dateFrom) conditions.push(sql`${studentMarks.updatedAt} >= ${dateFrom}`);
-  if (dateTo) conditions.push(sql`${studentMarks.updatedAt} <= ${dateTo} 23:59:59`);
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
     conditions.push(

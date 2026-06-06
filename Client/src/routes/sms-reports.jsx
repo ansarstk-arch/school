@@ -1,77 +1,124 @@
-import { useState, useEffect } from "react";
-import { RefreshCw, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
-import { getSmsLogs, getSmsStatistics, retrySms } from "@/data/smsApi";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { RefreshCw, Loader2, CheckCircle, XCircle, Clock, Eye, RotateCcw } from "lucide-react";
+import { getSmsLogs, getSmsStatistics, retrySms, getSmsEndpoints } from "@/data/smsApi";
 import { PageHeader } from "@/components/erp/PageHeader";
+import { FilterBar } from "@/components/erp/FilterBar";
+import { AgGridTable } from "@/components/erp/AgGridTable";
 import { Badge } from "@/components/erp/Badge";
+import { ErpModal } from "@/components/erp/ErpModal";
+import { StatCard } from "@/components/erp/StatCard";
+import { currentShamsiYear } from "@/lib/afghan-date";
 import { toast } from "sonner";
 
-const SEL = "w-full border border-input rounded px-2 py-1.5 bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring";
-const BTN = "px-3 py-1.5 rounded text-xs font-medium transition-colors";
-const BTN_OUTLINE = `${BTN} border border-input hover:bg-muted`;
-
-const statusOptions = [
-  { value: "", label: "ټول" },
-  { value: "Sent", label: "لیږل شوي" },
-  { value: "Failed", label: "ناکام" },
-  { value: "Pending", label: "په انتظار کې" },
+const SMS_FILTERS = [
+  {
+    key: "status",
+    label: "حالت",
+    type: "select",
+    options: [
+      { value: "Sent", label: "لیږل شوي" },
+      { value: "Failed", label: "ناکام" },
+      { value: "Pending", label: "په انتظار کې" },
+    ],
+  },
+  {
+    key: "messageType",
+    label: "د پیغام ډول",
+    type: "select",
+    options: [
+      { value: "Absent", label: "غیر حاضري" },
+      { value: "Present", label: "حاضري" },
+      { value: "Fee", label: "فیس" },
+      { value: "ExamPass", label: "ازموینه - بریالیتوب" },
+      { value: "ExamFail", label: "ازموینه - ناکامي" },
+      { value: "Homework", label: "کور کار" },
+    ],
+  },
+  { key: "year", label: "کال", type: "shamsiYear", placeholder: "تعلیمي کال" },
+  { key: "studentId", label: "د زده کوونکي ID", type: "number", placeholder: "زده کوونکي ID ولیکئ" },
 ];
 
-const messageTypeOptions = [
-  { value: "", label: "ټول" },
-  { value: "Absent", label: "غیر حاضري" },
-  { value: "Fee", label: "فیس" },
-  { value: "ExamPass", label: "ازموینه - بریالیتوب" },
-  { value: "ExamFail", label: "ازموینه - ناکامي" },
-  { value: "Homework", label: "کور کار" },
-];
+const SMS_FILTER_DEFAULTS = { year: String(currentShamsiYear()) };
+
+const MESSAGE_TYPE_LABELS = {
+  Absent: "غیر حاضري",
+  Present: "حاضري",
+  Fee: "فیس",
+  ExamPass: "ازموینه - بریالیتوب",
+  ExamFail: "ازموینه - ناکامي",
+  Homework: "کور کار",
+  Custom: "دودیز",
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return "—";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("fa-AF") + " " + date.toLocaleTimeString("fa-AF", { hour: "2-digit", minute: "2-digit" });
+};
 
 export default function SmsReports() {
   const [logs, setLogs] = useState([]);
   const [statistics, setStatistics] = useState(null);
+  const [endpoints, setEndpoints] = useState([]);
   const [loading, setLoading] = useState(false);
   const [retrying, setRetrying] = useState(null);
-  const [filters, setFilters] = useState({
-    status: "",
-    messageType: "",
-    page: 1,
-    limit: 20,
-  });
+  const [viewingMessage, setViewingMessage] = useState(null);
+  const [filters, setFilters] = useState(SMS_FILTER_DEFAULTS);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
 
-  useEffect(() => {
-    fetchLogs();
-    fetchStatistics();
-  }, [filters.status, filters.messageType, filters.page]);
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getSmsLogs(filters);
+      const response = await getSmsLogs({ ...filters, page, limit: 10 });
       setLogs(response.data.logs || []);
+      setPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
-      toast.error("د ریکارډونو ترلاسه کولو کې تېروتنه");
+      toast.error(error.message || "د ریکارډونو ترلاسه کولو کې تېروتنه");
+      setLogs([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, page]);
 
-  const fetchStatistics = async () => {
+  const fetchStatistics = useCallback(async () => {
     try {
-      const response = await getSmsStatistics();
+      const response = await getSmsStatistics(filters);
       setStatistics(response.data.stats);
     } catch (error) {
       console.error("Error fetching statistics:", error);
     }
+  }, [filters]);
+
+  useEffect(() => {
+    getSmsEndpoints().then((r) => setEndpoints(r.data.endpoints || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchLogs();
+    fetchStatistics();
+  }, [fetchLogs, fetchStatistics]);
+
+  const handleApplyFilters = (values) => {
+    setFilters(values);
+    setPage(1);
   };
 
-  const handleRetry = async (id) => {
-    setRetrying(id);
+  const handleClearFilters = () => {
+    setFilters(SMS_FILTER_DEFAULTS);
+    setPage(1);
+  };
+
+  const handleRetry = async (log) => {
+    setRetrying(log.id);
     try {
-      await retrySms(id);
+      const epId = log.endpointId || endpoints.find((e) => e.apiUrl)?.id;
+      await retrySms(log.id, epId ? { endpointId: epId } : {});
       toast.success("پیغام بیا لیږل شو");
       fetchLogs();
       fetchStatistics();
     } catch (error) {
-      toast.error(error.response?.data?.message || "د پیغام بیا لیږلو کې تېروتنه");
+      toast.error(error.response?.data?.message || error.message || "د پیغام بیا لیږلو کې تېروتنه");
     } finally {
       setRetrying(null);
     }
@@ -80,178 +127,209 @@ export default function SmsReports() {
   const getStatusBadge = (status) => {
     switch (status) {
       case "Sent":
-        return <Badge variant="success"><CheckCircle className="inline-block ml-1 h-3 w-3" />لیږل شوی</Badge>;
+        return <Badge variant="success"><CheckCircle className="inline-block ml-1 size-3" />لیږل شوی</Badge>;
       case "Failed":
-        return <Badge variant="danger"><XCircle className="inline-block ml-1 h-3 w-3" />ناکام</Badge>;
+        return <Badge variant="danger"><XCircle className="inline-block ml-1 size-3" />ناکام</Badge>;
       case "Pending":
-        return <Badge variant="muted"><Clock className="inline-block ml-1 h-3 w-3" />په انتظار کې</Badge>;
+        return <Badge variant="muted"><Clock className="inline-block ml-1 size-3" />په انتظار کې</Badge>;
       default:
         return <Badge variant="muted">{status}</Badge>;
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fa-AF') + " " + date.toLocaleTimeString('fa-AF', { hour: '2-digit', minute: '2-digit' });
-  };
+  const columnDefs = useMemo(() => [
+    {
+      field: "createdAt",
+      headerName: "نیټه",
+      flex: 1.1,
+      minWidth: 140,
+      valueFormatter: (params) => formatDate(params.value),
+    },
+    { field: "recipientName", headerName: "ترلاسه کوونکی", flex: 1.2, minWidth: 150 },
+    {
+      field: "recipientPhone",
+      headerName: "ټیلیفون",
+      flex: 1,
+      minWidth: 130,
+      cellRenderer: (params) => <span dir="ltr">{params.value || "—"}</span>,
+    },
+    {
+      field: "studentName",
+      headerName: "زده کوونکی",
+      flex: 1.2,
+      minWidth: 150,
+      cellRenderer: (params) => {
+        const log = params.data;
+        if (!log?.studentName) return "—";
+        return (
+          <span>
+            {log.studentName}
+            {log.studentId && <span className="text-[10px] text-muted-foreground mr-1">({log.studentId})</span>}
+          </span>
+        );
+      },
+    },
+    {
+      field: "messageType",
+      headerName: "د پیغام ډول",
+      flex: 1,
+      minWidth: 120,
+      cellRenderer: (params) => (
+        <Badge variant="muted">{MESSAGE_TYPE_LABELS[params.value] || params.value}</Badge>
+      ),
+    },
+    {
+      field: "status",
+      headerName: "حالت",
+      flex: 0.9,
+      minWidth: 110,
+      cellRenderer: (params) => getStatusBadge(params.value),
+    },
+    {
+      field: "actions",
+      headerName: "",
+      flex: 0.7,
+      minWidth: 90,
+      sortable: false,
+      filter: false,
+      cellRenderer: (params) => {
+        const log = params.data;
+        return (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); setViewingMessage(log); }}
+              title="پیغام وګورئ"
+              className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+            >
+              <Eye className="size-3.5" />
+            </button>
+            {log.status === "Failed" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleRetry(log); }}
+                disabled={retrying === log.id}
+                title="بیا هڅه"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+              >
+                {retrying === log.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+  ], [retrying]);
 
   return (
     <div className="space-y-4">
-      <PageHeader 
-        title="د SMS راپورونه او تاریخچه" 
+      <PageHeader
+        title="د SMS راپورونه او تاریخچه"
         subtitle="د لیږل شوو پیغامونو تاریخچه او احصائیې"
-      />
-
-      {/* Statistics Cards */}
-      {statistics && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-card border rounded-md p-4">
-            <p className="text-xs text-muted-foreground mb-1">ټول پیغامونه</p>
-            <p className="text-3xl font-bold">{statistics.total}</p>
-          </div>
-          <div className="bg-card border rounded-md p-4">
-            <p className="text-xs text-muted-foreground mb-1">لیږل شوي</p>
-            <p className="text-3xl font-bold text-green-600">{statistics.sent}</p>
-          </div>
-          <div className="bg-card border rounded-md p-4">
-            <p className="text-xs text-muted-foreground mb-1">ناکام</p>
-            <p className="text-3xl font-bold text-red-600">{statistics.failed}</p>
-          </div>
-          <div className="bg-card border rounded-md p-4">
-            <p className="text-xs text-muted-foreground mb-1">د بریالیتوب سلنه</p>
-            <p className="text-3xl font-bold">{statistics.successRate}%</p>
-          </div>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="bg-card border rounded-md p-4">
-        <h3 className="text-base font-semibold mb-3">فلټرونه</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">حالت</label>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value, page: 1 }))}
-              className={SEL}
-            >
-              {statusOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">د پیغام ډول</label>
-            <select
-              value={filters.messageType}
-              onChange={(e) => setFilters(prev => ({ ...prev, messageType: e.target.value, page: 1 }))}
-              className={SEL}
-            >
-              {messageTypeOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Logs Table */}
-      <div className="bg-card border rounded-md p-4 space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-base font-semibold">د پیغامونو تاریخچه</h3>
-          <button onClick={fetchLogs} className={BTN_OUTLINE}>
-            <RefreshCw className="inline-block ml-2 h-4 w-4" />
+        actions={
+          <button
+            onClick={() => { fetchLogs(); fetchStatistics(); }}
+            className="inline-flex items-center gap-2 text-sm border border-input rounded-md px-3 py-2 hover:bg-muted"
+          >
+            <RefreshCw className="size-4" />
             تازه کړئ
           </button>
-        </div>
+        }
+      />
 
-        {loading ? (
-          <div className="flex justify-center items-center h-32">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">
-            هیڅ ریکارډ ونه موندل شو
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b">
-                <tr className="text-right">
-                  <th className="pb-2 font-medium text-muted-foreground">نیټه</th>
-                  <th className="pb-2 font-medium text-muted-foreground">ترلاسه کوونکی</th>
-                  <th className="pb-2 font-medium text-muted-foreground">ټیلیفون</th>
-                  <th className="pb-2 font-medium text-muted-foreground">زده کوونکی</th>
-                  <th className="pb-2 font-medium text-muted-foreground">د پیغام ډول</th>
-                  <th className="pb-2 font-medium text-muted-foreground">حالت</th>
-                  <th className="pb-2 font-medium text-muted-foreground">عمل</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} className="border-b hover:bg-muted/50">
-                    <td className="py-3 text-xs">{formatDate(log.createdAt)}</td>
-                    <td className="py-3">{log.recipientName}</td>
-                    <td className="py-3 text-xs" dir="ltr">{log.recipientPhone}</td>
-                    <td className="py-3">{log.studentName || "-"}</td>
-                    <td className="py-3">
-                      <Badge variant="muted">{log.messageType}</Badge>
-                    </td>
-                    <td className="py-3">{getStatusBadge(log.status)}</td>
-                    <td className="py-3">
-                      {log.status === "Failed" && (
-                        <button
-                          onClick={() => handleRetry(log.id)}
-                          disabled={retrying === log.id}
-                          className={BTN_OUTLINE}
-                        >
-                          {retrying === log.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <>
-                              <RefreshCw className="inline-block ml-1 h-3 w-3" />
-                              بیا هڅه
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {logs.length > 0 && (
-        <div className="flex justify-center gap-2">
-          <button
-            onClick={() => setFilters(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
-            disabled={filters.page === 1}
-            className={`${BTN_OUTLINE} ${filters.page === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            مخکې
-          </button>
-          <div className="flex items-center px-4 text-sm">
-            پاڼه {filters.page}
-          </div>
-          <button
-            onClick={() => setFilters(prev => ({ ...prev, page: prev.page + 1 }))}
-            disabled={logs.length < filters.limit}
-            className={`${BTN_OUTLINE} ${logs.length < filters.limit ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            بل
-          </button>
+      {statistics && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="ټول پیغامونه" value={statistics.total} />
+          <StatCard label="لیږل شوي" value={statistics.sent} accent="success" />
+          <StatCard label="ناکام" value={statistics.failed} accent="destructive" />
+          <StatCard label="د بریالیتوب سلنه" value={`${statistics.successRate}%`} />
         </div>
       )}
+
+      <FilterBar
+        filters={SMS_FILTERS}
+        defaultValues={SMS_FILTER_DEFAULTS}
+        onApply={handleApplyFilters}
+        onClear={handleClearFilters}
+      />
+
+      <AgGridTable
+        columnDefs={columnDefs}
+        rowData={logs}
+        loading={loading}
+        emptyText="هیڅ ریکارډ ونه موندل شو"
+        searchPlaceholder="نوم، ټیلیفون، زده کوونکی..."
+        serverSidePagination
+        pageSize={pagination.limit || 10}
+        totalRows={pagination.total}
+        currentPage={page}
+        totalPages={pagination.totalPages}
+        onPageChange={setPage}
+      />
+
+      <ErpModal
+        open={Boolean(viewingMessage)}
+        onOpenChange={() => setViewingMessage(null)}
+        title="د پیغام تفصیل"
+        size="md"
+        footer={
+          <>
+            {viewingMessage?.status === "Failed" && (
+              <button
+                onClick={() => { handleRetry(viewingMessage); setViewingMessage(null); }}
+                disabled={retrying === viewingMessage?.id}
+                className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted"
+              >
+                {retrying === viewingMessage?.id ? "بیا لیږل کیږي..." : "بیا هڅه"}
+              </button>
+            )}
+            <button onClick={() => setViewingMessage(null)} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">
+              تړل
+            </button>
+          </>
+        }
+      >
+        {viewingMessage && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">ترلاسه کوونکی</p>
+                <p className="font-medium">{viewingMessage.recipientName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">ټیلیفون</p>
+                <p className="font-medium" dir="ltr">{viewingMessage.recipientPhone}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">زده کوونکی</p>
+                <p className="font-medium">{viewingMessage.studentName || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">د پیغام ډول</p>
+                <p className="font-medium">{MESSAGE_TYPE_LABELS[viewingMessage.messageType] || viewingMessage.messageType}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">نیټه</p>
+                <p className="font-medium">{formatDate(viewingMessage.createdAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">حالت</p>
+                <div className="mt-1">{getStatusBadge(viewingMessage.status)}</div>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">پیغام</p>
+              <div className="bg-muted/30 p-3 rounded border leading-relaxed">{viewingMessage.messageContent}</div>
+            </div>
+            {viewingMessage.failureReason && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">د ناکامۍ دلیل</p>
+                <div className="bg-destructive/10 border border-destructive/20 p-3 rounded text-destructive">
+                  {viewingMessage.failureReason}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </ErpModal>
     </div>
   );
 }

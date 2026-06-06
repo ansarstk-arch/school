@@ -1,141 +1,121 @@
 import { eq } from "drizzle-orm";
 import { asyncHandler } from "../../utils/AsyncHandler.util.js";
 import db from "../../configs/db/db.config.js";
-import { smsSettings } from "../../db/schema.js";
+import { smsEndpoints } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
-import axios from "axios";
+import { testSmsConnection as testSms } from "../../services/sms/sms-sender.service.js";
 
-// ─── GET SMS SETTINGS ──────────────────────────────────────────────────────────
+const DEFAULT_ENDPOINTS = [
+  { slot: 1, name: "فون ۱" },
+  { slot: 2, name: "فون ۲" },
+  { slot: 3, name: "فون ۳" },
+];
+
+const ensureDefaultEndpoints = async () => {
+  const existing = await db.select().from(smsEndpoints);
+  if (existing.length >= 3) return existing;
+
+  for (const ep of DEFAULT_ENDPOINTS) {
+    const found = existing.find((e) => e.slot === ep.slot);
+    if (!found) {
+      await db.insert(smsEndpoints).values({ slot: ep.slot, name: ep.name, isActive: true });
+    }
+  }
+
+  return db.select().from(smsEndpoints).orderBy(smsEndpoints.slot);
+};
+
+// ─── GET ALL SMS ENDPOINTS ─────────────────────────────────────────────────────
+export const getSmsEndpoints = asyncHandler(async (req, res) => {
+  const endpoints = await ensureDefaultEndpoints();
+  res.respond(200, "د SMS فونونه ترلاسه شول", { endpoints });
+});
+
+// ─── GET SMS SETTINGS (backward compat) ─────────────────────────────────────────
 export const getSmsSettings = asyncHandler(async (req, res) => {
-  const [settings] = await db.select().from(smsSettings).limit(1);
-  
-  if (!settings) {
-    return res.respond(200, "د SMS تنظیمات نه دي موندل شوي", { settings: null });
-  }
-
-  // Don't expose sensitive data in full
-  const safeSettings = {
-    ...settings,
-    apiPassword: settings.apiPassword ? "********" : null,
-    apiToken: settings.apiToken ? "********" : null,
-  };
-
-  res.respond(200, "د SMS تنظیمات ترلاسه شول", { settings: safeSettings });
+  const endpoints = await ensureDefaultEndpoints();
+  const configured = endpoints.filter((e) => e.apiUrl);
+  res.respond(200, "د SMS تنظیمات ترلاسه شول", {
+    settings: configured.length > 0 ? { isActive: true, endpoints: configured } : null,
+    endpoints,
+  });
 });
 
-// ─── CREATE OR UPDATE SMS SETTINGS ────────────────────────────────────────────
-export const upsertSmsSettings = asyncHandler(async (req, res) => {
-  const {
-    apiUrl,
-  } = req.body;
+// ─── SAVE SINGLE ENDPOINT ──────────────────────────────────────────────────────
+export const upsertSmsEndpoint = asyncHandler(async (req, res) => {
+  const { slot, apiUrl } = req.body;
 
-  if (!apiUrl) throw new ApiError(400, "د API پته اړینه ده");
+  if (!slot || slot < 1 || slot > 3) throw new ApiError(400, "د فون سلاټ سم نه دی (۱، ۲ یا ۳)");
 
-  const [existingSettings] = await db.select().from(smsSettings).limit(1);
+  if (!apiUrl?.trim()) throw new ApiError(400, "د API بشپړه پته اړینه ده");
 
-  const settingsData = {
-    apiUrl,
-    isActive: true,
-    updatedAt: new Date().toISOString(),
-  };
-
-  let result;
-  if (existingSettings) {
-    // Update existing
-    [result] = await db
-      .update(smsSettings)
-      .set(settingsData)
-      .where(eq(smsSettings.id, existingSettings.id))
-      .returning();
-  } else {
-    // Create new
-    [result] = await db.insert(smsSettings).values(settingsData).returning();
+  const trimmedUrl = apiUrl.trim();
+  try {
+    new URL(trimmedUrl);
+  } catch {
+    throw new ApiError(400, "د API پته سمه نه ده. بشپړه پته ولیکئ (مثال: http://192.168.1.5:8080/send)");
   }
 
-  const safeResult = {
-    ...result,
-    apiPassword: result.apiPassword ? "********" : null,
-    apiToken: result.apiToken ? "********" : null,
-  };
+  await ensureDefaultEndpoints();
 
-  res.respond(200, "د SMS تنظیمات بریالیتوب سره خوندي شول", { settings: safeResult });
+  const [result] = await db
+    .update(smsEndpoints)
+    .set({ apiUrl: trimmedUrl, isActive: true, updatedAt: new Date().toISOString() })
+    .where(eq(smsEndpoints.slot, Number(slot)))
+    .returning();
+
+  if (!result) throw new ApiError(404, "فون ونه موندل شو");
+
+  res.respond(200, `${result.name} بریالیتوب سره خوندي شو`, { endpoint: result });
 });
 
-// ─── TEST SMS CONNECTION ───────────────────────────────────────────────────────
+// ─── CREATE OR UPDATE SMS SETTINGS (backward compat) ───────────────────────────
+export const upsertSmsSettings = upsertSmsEndpoint;
+
+// ─── TEST SMS CONNECTION ─────────────────────────────────────────────────────────
 export const testSmsConnection = asyncHandler(async (req, res) => {
-  const { testPhone, testMessage } = req.body;
+  const { endpointId, slot, testPhone, testMessage } = req.body;
 
   if (!testPhone) throw new ApiError(400, "د ازموینې لپاره ټیلیفون نمبر اړین دی");
 
-  const [settings] = await db.select().from(smsSettings).limit(1);
-  if (!settings) throw new ApiError(404, "د SMS تنظیمات نه دي موندل شوي. لومړی تنظیمات جوړ کړئ");
+  await ensureDefaultEndpoints();
 
-  if (!settings.isActive) throw new ApiError(400, "د SMS تنظیمات غیر فعال دي");
-
-  try {
-    const message = testMessage || "دا د ازموینې پیغام دی";
-    
-    // Build request config
-    const config = {
-      method: settings.requestMethod,
-      url: settings.apiUrl,
-      phone: testPhone,
-      message: message,
-      timeout: 10000,
-    };
-
-
-    // Make API call
-    const response = await axios(config);
-
-    // Update last tested time
-    await db
-      .update(smsSettings)
-      .set({ lastTestedAt: new Date().toISOString() })
-      .where(eq(smsSettings.id, settings.id));
-
-    res.respond(200, "د SMS اتصال بریالیتوب سره ازمویل شو", {
-      success: true,
-      statusCode: response.status,
-      response: response.data,
-    });
-  } catch (error) {
-    console.error("SMS Test Error:", error);
-
-    let errorMessage = "د SMS اتصال کې تېروتنه رامنځته شوه";
-    
-    if (error.code === "ECONNREFUSED") {
-      errorMessage = "د سرور سره اتصال نشو. مهرباني وکړئ API پته او پورټ وګورئ";
-    } else if (error.code === "ETIMEDOUT") {
-      errorMessage = "د API غوښتنه ډیره وخت ونیوه. مهرباني وکړئ خپل انټرنیټ اتصال وګورئ";
-    } else if (error.code === "ENOTFOUND") {
-      errorMessage = "د انټرنیټ اتصال نشته. مهرباني وکړئ خپل هاټسپاټ وګورئ";
-    } else if (error.response) {
-      const status = error.response.status;
-      if (status === 401) {
-        errorMessage = "د تصدیق تېروتنه. مهرباني وکړئ ټوکن یا پاسورډ وګورئ او یا یې په بل ځای کې ولګوئ";
-      } else if (status === 403) {
-        errorMessage = "اجازه نشته. مهرباني وکړئ د API کریډنشیلز وګورئ";
-      } else if (status === 404) {
-        errorMessage = "API پته ونه موندل شوه. مهرباني وکړئ URL وګورئ";
-      } else if (status === 500) {
-        errorMessage = "د سرور تېروتنه. مهرباني وکړئ وروسته بیا هڅه وکړئ";
-      } else {
-        errorMessage = `د API تېروتنه: ${status} - ${error.response.statusText}`;
-      }
-    }
-
-    throw new ApiError(400, errorMessage);
+  let endpoint;
+  if (endpointId) {
+    [endpoint] = await db.select().from(smsEndpoints).where(eq(smsEndpoints.id, Number(endpointId)));
+  } else if (slot) {
+    [endpoint] = await db.select().from(smsEndpoints).where(eq(smsEndpoints.slot, Number(slot)));
   }
+
+  if (!endpoint) throw new ApiError(404, "فون ونه موندل شو");
+  if (!endpoint.apiUrl) throw new ApiError(400, "لومړی د دې فون لپاره API پته خوندي کړئ");
+
+  const result = await testSms(endpoint, testPhone, testMessage);
+
+  if (result.success) {
+    await db
+      .update(smsEndpoints)
+      .set({ lastTestedAt: new Date().toISOString() })
+      .where(eq(smsEndpoints.id, endpoint.id));
+
+    return res.respond(200, "د SMS اتصال بریالیتوب سره ازمویل شو", {
+      success: true,
+      endpoint: endpoint.name,
+      response: result.response,
+    });
+  }
+
+  throw new ApiError(400, result.error);
 });
 
-// ─── DELETE SMS SETTINGS ───────────────────────────────────────────────────────
+// ─── DELETE SMS SETTINGS (backward compat — clears endpoint URL) ─────────────────
 export const deleteSmsSettings = asyncHandler(async (req, res) => {
-  const [settings] = await db.select().from(smsSettings).limit(1);
-  
-  if (!settings) throw new ApiError(404, "د SMS تنظیمات نه دي موندل شوي");
-
-  await db.delete(smsSettings).where(eq(smsSettings.id, settings.id));
-
-  res.respond(200, "د SMS تنظیمات بریالیتوب سره ړنګ شول");
+  const { slot } = req.query;
+  if (slot) {
+    await db
+      .update(smsEndpoints)
+      .set({ apiUrl: null, updatedAt: new Date().toISOString() })
+      .where(eq(smsEndpoints.slot, Number(slot)));
+  }
+  res.respond(200, "د SMS تنظیمات ړنګ شول");
 });

@@ -22,7 +22,7 @@ export default function MarksResultPrepPage() {
   const [loading, setLoading] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 12 });
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
   const [summary, setSummary] = useState(null);
   const [exporting, setExporting] = useState(false);
 
@@ -48,11 +48,11 @@ export default function MarksResultPrepPage() {
     async (pageNum = 1, f = filters) => {
       setLoading(true);
       try {
-        const res = await marksApi.getResultPrepRecords({ page: pageNum, limit: 12, ...f });
+        const res = await marksApi.getResultPrepRecords({ page: pageNum, limit: 10, ...f });
         if (res.success) {
           setRecords(res.data.records || []);
           setPagination(
-            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 12 }
+            res.data.pagination || { total: 0, totalPages: 1, page: pageNum, limit: 10 }
           );
         }
       } catch (e) {
@@ -299,7 +299,7 @@ export default function MarksResultPrepPage() {
         rowData={records}
         loading={loading}
         serverSidePagination
-        pageSize={pagination.limit || 12}
+        pageSize={pagination.limit || 10}
         totalRows={pagination.total}
         currentPage={page}
         totalPages={pagination.totalPages}

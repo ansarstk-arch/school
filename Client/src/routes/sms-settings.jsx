@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { getSmsSettings, upsertSmsSettings, testSmsConnection } from "@/data/smsApi";
+import { Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle, Smartphone } from "lucide-react";
+import { getSmsEndpoints, upsertSmsEndpoint, testSmsConnection } from "@/data/smsApi";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/erp/PageHeader";
 import { toast } from "sonner";
@@ -10,62 +10,66 @@ const BTN = "px-4 py-2 rounded text-sm font-medium transition-colors";
 const BTN_PRIMARY = `${BTN} bg-primary text-primary-foreground hover:opacity-90`;
 const BTN_OUTLINE = `${BTN} border border-input hover:bg-muted`;
 
-const F = ({ label, opt, error, children }) => (
-  <label className="flex flex-col gap-1">
-    <span className="text-xs text-muted-foreground">{label}{opt && <span className="opacity-40 ml-1">(اختیاري)</span>}</span>
-    {children}
-    {error && <span className="text-[11px] text-destructive mt-0.5">{error}</span>}
-  </label>
-);
-
 export default function SmsSettings() {
-  const [loading, setLoading] = useState(false);
+  const [endpoints, setEndpoints] = useState([]);
+  const [urls, setUrls] = useState({ 1: "", 2: "", 3: "" });
+  const [saving, setSaving] = useState({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [formData, setFormData] = useState({
-    providerName: "Custom API",
-    apiUrl: "",
-    apiPort: "",
-    apiToken: "",
-    apiUsername: "",
-    apiPassword: "",
-    authMethod: "token",
-    tokenPlacement: "header",
-    requestMethod: "POST",
-    phoneField: "phone",
-    messageField: "message",
-    smsBalance: 0,
-  });
   const [testData, setTestData] = useState({
+    endpointId: "",
     testPhone: "",
     testMessage: "دا د ازموینې پیغام دی",
   });
 
   useEffect(() => {
-    fetchSettings();
+    fetchEndpoints();
   }, []);
 
-  const fetchSettings = async () => {
+  const fetchEndpoints = async () => {
     try {
-      const response = await getSmsSettings();
-      if (response.data.settings) {
-        setFormData({
-          ...response.data.settings,
-          apiToken: "",
-          apiPassword: "",
-        });
-      }
+      const response = await getSmsEndpoints();
+      const eps = response.data.endpoints || [];
+      setEndpoints(eps);
+      const urlMap = { 1: "", 2: "", 3: "" };
+      eps.forEach((ep) => { urlMap[ep.slot] = ep.apiUrl || ""; });
+      setUrls(urlMap);
     } catch (error) {
-      console.error("Error fetching settings:", error);
+      console.error("Error fetching endpoints:", error);
     }
   };
 
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    setTestResult(null);
+  const handleSave = async (slot) => {
+    const apiUrl = urls[slot]?.trim();
+    if (!apiUrl) {
+      toast.error("د API بشپړه پته ولیکئ");
+      return;
+    }
+
+    try {
+      new URL(apiUrl);
+    } catch {
+      toast.error("د API پته سمه نه ده. بشپړه پته ولیکئ (مثال: http://192.168.1.5:8080/send)");
+      return;
+    }
+
+    setSaving((prev) => ({ ...prev, [slot]: true }));
+    try {
+      await upsertSmsEndpoint({ slot, apiUrl });
+      toast.success(`فون ${slot} بریالیتوب سره خوندي شو`);
+      fetchEndpoints();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "د خوندي کولو کې تېروتنه");
+    } finally {
+      setSaving((prev) => ({ ...prev, [slot]: false }));
+    }
   };
 
   const handleTest = async () => {
+    if (!testData.endpointId) {
+      toast.error("لومړی فون وټاکئ");
+      return;
+    }
     if (!testData.testPhone) {
       toast.error("د ازموینې لپاره ټیلیفون نمبر اړین دی");
       return;
@@ -75,288 +79,169 @@ export default function SmsSettings() {
     setTestResult(null);
 
     try {
-      const response = await testSmsConnection(testData);
+      const response = await testSmsConnection({
+        endpointId: Number(testData.endpointId),
+        testPhone: testData.testPhone,
+        testMessage: testData.testMessage,
+      });
       setTestResult({
         success: true,
-        message: "د SMS اتصال بریالیتوب سره ازمویل شو! ټول تنظیمات سم دي.",
+        message: "د SMS اتصال بریالیتوب سره ازمویل شو!",
         details: response.data,
       });
-      toast.success("د SMS اتصال بریالیتوب سره ازمویل شو");
+      toast.success("ازموینه بریالۍ وه");
     } catch (error) {
       const errorMsg = error.response?.data?.message || error.message || "د SMS اتصال کې تېروتنه";
-      setTestResult({
-        success: false,
-        message: errorMsg,
-        details: error.response?.data,
-      });
-      toast.error(errorMsg);
+      
+      // Enhanced error message
+      let enhancedMsg = errorMsg;
+      if (errorMsg.includes("ECONNREFUSED") || errorMsg.includes("Failed to fetch") || errorMsg.includes("Network")) {
+        enhancedMsg = "د اتصال کې ستونزه! مهرباني وکړئ ډاډ ترلاسه کړئ چې:\n۱. SMS Gateway سرور په فون کې روان دی\n۲. فون او کمپیوټر په یوه شبکې پورې وصل دي\n۳. د API پته سمه ده";
+      }
+      
+      setTestResult({ success: false, message: enhancedMsg });
+      toast.error(enhancedMsg);
     } finally {
       setTesting(false);
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.apiUrl) {
-      toast.error("د API پته اړینه ده");
-      return;
-    }
-
-    try {
-      new URL(formData.apiUrl);
-    } catch {
-      toast.error("د API پته سمه نه ده. مهرباني وکړئ بشپړه URL ولیکئ (مثال: https://api.example.com/send)");
-      return;
-    }
-
-    if (formData.authMethod === "token" && !formData.apiToken) {
-      toast.error("د API ټوکن اړین دی");
-      return;
-    }
-
-    if (formData.authMethod === "basic" && (!formData.apiUsername || !formData.apiPassword)) {
-      toast.error("د API کارن نوم او پاسورډ اړین دي");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await upsertSmsSettings(formData);
-      toast.success("د SMS تنظیمات بریالیتوب سره خوندي شول");
-      fetchSettings();
-    } catch (error) {
-      toast.error(error.response?.data?.message || "د تنظیماتو خوندي کولو کې تېروتنه");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const configuredEndpoints = endpoints.filter((e) => e.apiUrl);
 
   return (
     <div className="space-y-4">
-      <PageHeader 
-        title="د SMS تنظیمات" 
-        subtitle="د SMS API تنظیمات او اتصال ازموینه"
+      <PageHeader
+        title="د SMS تنظیمات"
+        subtitle="د فون API پتې تنظیم او ازموینه"
       />
 
-      {/* Test Result Alert */}
-      {testResult && (
-        <div className={`p-4 rounded-md border ${testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-          <div className="flex items-start gap-3">
-            {testResult.success ? (
-              <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
-            ) : (
-              <XCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-            )}
-            <div className="flex-1">
-              <div className="font-semibold text-sm mb-1">
-                {testResult.success ? "بریالیتوب" : "تېروتنه"}
+      {/* Instructions */}
+      <div className="p-4 bg-blue-50 border border-blue-200 rounded-md space-y-2">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-900 space-y-1">
+            <p className="font-semibold">د API پتې د خوندي کولو لارښوونه:</p>
+            <p><strong>۱. لومړی:</strong> د SMS Gateway سرور په خپل فون کې روان کړئ</p>
+            <p><strong>۲. بیا:</strong> بشپړه پته ولیکئ چې پورټ شمیره هم پکې وي (مثال: <span dir="ltr">http://192.168.1.5:8080/send</span>)</p>
+            <p>• د API فیلډونه په ډیفالټ <strong>phone</strong> او <strong>message</strong> دي — بدلول اړین نه دي</p>
+            <p>• هر فون جلا خوندي کیږي — لومړی پته خوندي کړئ، بیا ازموینه وکړئ</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 3 Phone Endpoints */}
+      <div className="bg-card border rounded-md p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Smartphone className="h-5 w-5" />
+          <h3 className="text-base font-semibold">د فون API پتې</h3>
+        </div>
+
+        {[1, 2, 3].map((slot) => {
+          const ep = endpoints.find((e) => e.slot === slot);
+          const name = ep?.name || `فون ${slot}`;
+          return (
+            <div key={slot} className="p-3 border rounded-md space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{name}</span>
+                {ep?.apiUrl && (
+                  <span className="text-[10px] text-green-600 bg-green-50 px-2 py-0.5 rounded">تنظیم شوی</span>
+                )}
               </div>
-              <div className="text-sm">{testResult.message}</div>
+              <Input
+                value={urls[slot] || ""}
+                handleChanges={(e) => setUrls((prev) => ({ ...prev, [slot]: e.target.value }))}
+                placeholder="http://192.168.1.5:8080/send"
+                dir="ltr"
+              />
+              <button
+                onClick={() => handleSave(slot)}
+                disabled={saving[slot]}
+                className={BTN_PRIMARY}
+              >
+                {saving[slot] ? (
+                  <><Loader2 className="inline-block ml-2 h-4 w-4 animate-spin" />خوندي کیږي...</>
+                ) : (
+                  <><Save className="inline-block ml-2 h-4 w-4" />{name} خوندي کړئ</>
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Test Section — separate from settings */}
+      <div className="bg-card border rounded-md p-4 space-y-4">
+        <div>
+          <h3 className="text-base font-semibold mb-1">د پیغام ازموینه</h3>
+          <p className="text-xs text-muted-foreground">فون وټاکئ او مستقیم API ته ازموینه وکړئ</p>
+        </div>
+
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 space-y-1">
+            <p><strong>مهمه یادونه:</strong></p>
+            <p>• د پیغام لیږلو دمخه ډاډ ترلاسه کړئ چې <strong>SMS Gateway سرور په فون کې روان دی</strong></p>
+            <p>• ستاسو کمپیوټر او فون باید په یوه شبکې (<strong>وای فای</strong> یا <strong>هاټسپاټ</strong>) پورې وصل وي</p>
+            <p>• <strong>VPN مه کاروئ</strong> — VPN فعال وي نو SMS لیږل او ازموینه ناکام کیږي</p>
+          </div>
+        </div>
+
+        {testResult && (
+          <div className={`p-3 rounded-md border ${testResult.success ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+            <div className="flex items-start gap-2">
+              {testResult.success ? (
+                <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-600 shrink-0" />
+              )}
+              <p className="text-sm">{testResult.message}</p>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* API Configuration */}
-      <div className="bg-card border rounded-md p-4 space-y-4">
-        <div>
-          <h3 className="text-base font-semibold mb-1">د API تنظیمات</h3>
-          <p className="text-xs text-muted-foreground">د SMS لیږلو لپاره د API معلومات داخل کړئ</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <F label="د خدمت ورکوونکي نوم">
-            <Input
-              value={formData.providerName}
-              handleChanges={(e) => handleChange("providerName", e.target.value)}
-              placeholder="Custom API"
-            />
-          </F>
-
-          <F label="د غوښتنې میتود">
-            <select value={formData.requestMethod} onChange={(e) => handleChange("requestMethod", e.target.value)} className={SEL}>
-              <option value="POST">POST</option>
-              <option value="GET">GET</option>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">فون وټاکئ</span>
+            <select
+              value={testData.endpointId}
+              onChange={(e) => setTestData((prev) => ({ ...prev, endpointId: e.target.value }))}
+              className={SEL}
+            >
+              <option value="">فون وټاکئ</option>
+              {configuredEndpoints.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
             </select>
-          </F>
-        </div>
+          </label>
 
-        <F label="د API پته (URL)">
-          <Input
-            value={formData.apiUrl}
-            handleChanges={(e) => handleChange("apiUrl", e.target.value)}
-            placeholder="https://api.example.com/send"
-          />
-          <p className="text-xs text-muted-foreground mt-1">بشپړه URL ولیکئ (مثال: https://api.example.com/send)</p>
-        </F>
-
-        <F label="پورټ (اختیاري)" opt>
-          <Input
-            value={formData.apiPort}
-            handleChanges={(e) => handleChange("apiPort", e.target.value)}
-            placeholder="8080"
-          />
-          <p className="text-xs text-muted-foreground mt-1">که چیرې API ځانګړی پورټ ته اړتیا لري نو دلته یې ولیکئ</p>
-        </F>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <F label="د ټیلیفون فیلډ نوم">
-            <Input
-              value={formData.phoneField}
-              handleChanges={(e) => handleChange("phoneField", e.target.value)}
-              placeholder="phone"
-            />
-          </F>
-
-          <F label="د پیغام فیلډ نوم">
-            <Input
-              value={formData.messageField}
-              handleChanges={(e) => handleChange("messageField", e.target.value)}
-              placeholder="message"
-            />
-          </F>
-        </div>
-      </div>
-
-      {/* Authentication */}
-      <div className="bg-card border rounded-md p-4 space-y-4">
-        <div>
-          <h3 className="text-base font-semibold mb-1">د تصدیق تنظیمات</h3>
-          <p className="text-xs text-muted-foreground">د API تصدیق معلومات</p>
-        </div>
-
-        <F label="د تصدیق میتود">
-          <select value={formData.authMethod} onChange={(e) => handleChange("authMethod", e.target.value)} className={SEL}>
-            <option value="token">Token</option>
-            <option value="bearer">Bearer Token</option>
-            <option value="basic">Basic Auth</option>
-          </select>
-        </F>
-
-        {(formData.authMethod === "token" || formData.authMethod === "bearer") && (
-          <>
-            <F label="API ټوکن">
-              <Input
-                type="password"
-                value={formData.apiToken}
-                handleChanges={(e) => handleChange("apiToken", e.target.value)}
-                placeholder="your-api-token-here"
-              />
-            </F>
-
-            {formData.authMethod === "token" && (
-              <F label="د ټوکن ځای">
-                <select value={formData.tokenPlacement} onChange={(e) => handleChange("tokenPlacement", e.target.value)} className={SEL}>
-                  <option value="header">Header</option>
-                  <option value="query">Query Parameter</option>
-                  <option value="body">Request Body</option>
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  که چیرې ۴۰۱ تېروتنه راشي نو د ټوکن ځای بدل کړئ
-                </p>
-              </F>
-            )}
-          </>
-        )}
-
-        {formData.authMethod === "basic" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <F label="کارن نوم">
-              <Input
-                value={formData.apiUsername}
-                handleChanges={(e) => handleChange("apiUsername", e.target.value)}
-                placeholder="username"
-              />
-            </F>
-
-            <F label="پاسورډ">
-              <Input
-                type="password"
-                value={formData.apiPassword}
-                handleChanges={(e) => handleChange("apiPassword", e.target.value)}
-                placeholder="password"
-              />
-            </F>
-          </div>
-        )}
-      </div>
-
-      {/* Test Connection */}
-      <div className="bg-card border rounded-md p-4 space-y-4">
-        <div>
-          <h3 className="text-base font-semibold mb-1">د اتصال ازموینه</h3>
-          <p className="text-xs text-muted-foreground">د تنظیماتو د خوندي کولو دمخه اتصال ازمویئ</p>
-        </div>
-
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-          <p className="text-xs text-blue-900">
-            لومړی د اتصال ازموینه وکړئ. که چیرې بریالیتوب سره ازمویل شو نو بیا تنظیمات خوندي کړئ.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <F label="د ازموینې ټیلیفون نمبر">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">ټیلیفون نمبر</span>
             <Input
               value={testData.testPhone}
-              handleChanges={(e) => setTestData(prev => ({ ...prev, testPhone: e.target.value }))}
+              handleChanges={(e) => setTestData((prev) => ({ ...prev, testPhone: e.target.value }))}
               placeholder="0700123456"
+              dir="ltr"
             />
-          </F>
+          </label>
 
-          <F label="د ازموینې پیغام">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">ازموینه پیغام</span>
             <Input
               value={testData.testMessage}
-              handleChanges={(e) => setTestData(prev => ({ ...prev, testMessage: e.target.value }))}
+              handleChanges={(e) => setTestData((prev) => ({ ...prev, testMessage: e.target.value }))}
               placeholder="دا د ازموینې پیغام دی"
             />
-          </F>
+          </label>
         </div>
 
-        <button onClick={handleTest} disabled={testing} className={BTN_OUTLINE}>
+        <button onClick={handleTest} disabled={testing || configuredEndpoints.length === 0} className={BTN_OUTLINE}>
           {testing ? (
-            <>
-              <Loader2 className="inline-block ml-2 h-4 w-4 animate-spin" />
-              ازموینه کیږي...
-            </>
+            <><Loader2 className="inline-block ml-2 h-4 w-4 animate-spin" />ازموینه کیږي...</>
           ) : (
-            <>
-              <TestTube className="inline-block ml-2 h-4 w-4" />
-              د اتصال ازموینه
-            </>
+            <><TestTube className="inline-block ml-2 h-4 w-4" />ازموینه وکړئ</>
           )}
         </button>
       </div>
-
-      {/* Save Button */}
-      <div className="flex justify-end gap-3">
-        <button 
-          onClick={handleSave} 
-          disabled={loading || !testResult?.success} 
-          className={`${BTN_PRIMARY} ${(!testResult?.success) ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="inline-block ml-2 h-4 w-4 animate-spin" />
-              خوندي کیږي...
-            </>
-          ) : (
-            <>
-              <Save className="inline-block ml-2 h-4 w-4" />
-              تنظیمات خوندي کړئ
-            </>
-          )}
-        </button>
-      </div>
-
-      {!testResult?.success && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-          <p className="text-xs text-red-900">
-            د تنظیماتو د خوندي کولو دمخه لومړی د اتصال ازموینه وکړئ او ډاډ ترلاسه کړئ چې بریالیتوب سره کار کوي.
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { ShamsiDatePicker } from "@/components/erp/ShamsiDatePicker";
 import { ShamsiMonthPicker } from "@/components/erp/ShamsiMonthPicker";
 import { Input } from "@/components/ui/Input";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
+import { FilterBar } from "@/components/erp/FilterBar";
 import * as feeApi from "@/data/feeApi";
 import * as studentApi from "@/data/studentApi";
 import * as classApi from "@/data/classApi";
@@ -25,6 +26,7 @@ import {
   formatShamsiMonthLabel,
 } from "@/lib/afghan-date";
 import { printFeeReceipt } from "@/utils/printFeeReceipt";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const SEL = "w-full border border-input rounded px-2 py-1.5 bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring";
 
@@ -63,6 +65,10 @@ const EMPTY_FORM = {
 };
 
 export default function Revenue() {
+  const { allowedInstitutions, canInstitution } = usePermissions();
+  const visibleEnrollTypes = ENROLL_TYPES.filter((t) => allowedInstitutions.includes(t.value));
+  const defaultEnrollType = visibleEnrollTypes[0]?.value || "School";
+
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -74,18 +80,17 @@ export default function Revenue() {
   const [statistics, setStatistics] = useState(null);
   const [errors, setErrors] = useState({});
   
-  // Filters
+  // Filters - Default to current month and Unpaid status
   const [filters, setFilters] = useState({
     search: "",
-    academicYear: "",
     enrollmentType: "",
-    status: "",
-    month: "",
+    status: "Unpaid",  // Default to Unpaid to show students who need to pay
+    month: currentShamsiYearMonth(),
     startDate: "",
     endDate: "",
   });
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 10;
 
   // Form state
   const [form, setForm] = useState(EMPTY_FORM);
@@ -95,7 +100,7 @@ export default function Revenue() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
-  const [selectedType, setSelectedType] = useState("School");
+  const [selectedType, setSelectedType] = useState(defaultEnrollType);
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [studentDetails, setStudentDetails] = useState([]);
   const [multipleIds, setMultipleIds] = useState("");
@@ -105,6 +110,14 @@ export default function Revenue() {
   const [viewPayment, setViewPayment] = useState(null);
   const [totalFeeAmount, setTotalFeeAmount] = useState(0);
   const [receivedAmount, setReceivedAmount] = useState("");
+  
+  // Mark as Paid modal state
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [selectedForPaid, setSelectedForPaid] = useState(null);
+  const [feeAmount, setFeeAmount] = useState("");
+  const [paidAmount, setPaidAmount] = useState("");
+  const [paidDate, setPaidDate] = useState(todayIsoDate());
+  const [paidNotes, setPaidNotes] = useState("");
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -115,13 +128,20 @@ export default function Revenue() {
   });
 
   useEffect(() => {
+    if (!canInstitution(selectedType)) {
+      setSelectedType(defaultEnrollType);
+      setForm((prev) => ({ ...prev, enrollmentType: defaultEnrollType }));
+    }
+  }, [allowedInstitutions, canInstitution, defaultEnrollType, selectedType]);
+
+  useEffect(() => {
     loadClasses();
     loadStatistics();
   }, []);
 
   useEffect(() => {
     loadStatistics();
-  }, [filters.month, filters.academicYear]);
+  }, [filters.month]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -133,11 +153,23 @@ export default function Revenue() {
   const loadPayments = async () => {
     try {
       setLoading(true);
-      const response = await feeApi.getFeePayments({
+      
+      // Build params with defaults to ensure we always have valid filters
+      // Use current month as fallback if no filter is set
+      const monthValue = filters.month || currentShamsiYearMonth();
+      const academicYearValue = monthValue.split('-')[0];
+      
+      const params = { 
         ...filters,
-        page,
-        limit: PAGE_SIZE,
-      });
+        month: monthValue,
+        academicYear: academicYearValue,
+        page, 
+        limit: PAGE_SIZE 
+      };
+      
+      console.log('Loading fee payments with params:', params);
+      
+      const response = await feeApi.getFeePayments(params);
       const data = response?.data ?? {};
       const rows = (data.payments ?? []).map((p) => ({
         ...p,
@@ -163,9 +195,13 @@ export default function Revenue() {
 
   const loadStatistics = async () => {
     try {
+      // Extract year from month (YYYY-MM) for academicYear parameter
+      const monthValue = filters.month || currentShamsiYearMonth();
+      const academicYear = monthValue ? monthValue.split('-')[0] : undefined;
+      
       const response = await feeApi.getFeeStatistics({
-        month: filters.month || currentShamsiYearMonth(),
-        academicYear: filters.academicYear || undefined,
+        month: monthValue,
+        academicYear: academicYear,
       });
       setStatistics(response.data);
     } catch (error) {
@@ -505,6 +541,62 @@ export default function Revenue() {
     setDeleteOpen(true);
   };
 
+  const openMarkAsPaid = (payment) => {
+    setSelectedForPaid(payment);
+    setFeeAmount(String(payment.amount || 0));
+    setPaidAmount(String(payment.remaining ?? Math.max(0, Number(payment.amount || 0) - Number(payment.paid || 0))));
+    setPaidDate(todayIsoDate());
+    setPaidNotes("");
+    setMarkPaidOpen(true);
+  };
+
+  const handleMarkAsPaid = async () => {
+    if (!selectedForPaid) return;
+
+    const totalFee = parseFloat(feeAmount);
+    const paymentAmount = parseFloat(paidAmount);
+
+    if (!Number.isFinite(totalFee) || totalFee < 0) {
+      toast.error("مهرباني وکړئ د فیس مقدار سم دننه کړئ");
+      return;
+    }
+
+    if (!Number.isFinite(paymentAmount) || paymentAmount < 0) {
+      toast.error("مهرباني وکړئ د تادیې مقدار دننه کړئ");
+      return;
+    }
+
+    const currentPaid = Number(selectedForPaid.paid || 0);
+    const newPaidAmount = currentPaid + paymentAmount;
+
+    if (newPaidAmount > totalFee) {
+      toast.error("د ټول تادیې مقدار د فیس څخه زیات نشي کیدای");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      await feeApi.updateFeePayment(selectedForPaid.id, {
+        amount: totalFee,
+        paidAmount: newPaidAmount,
+        notes: paidNotes || selectedForPaid.notes || "تادیه شوې",
+      });
+
+      toast.success("فیس بریالیتوب سره تادیه شو");
+      setMarkPaidOpen(false);
+      setSelectedForPaid(null);
+      setPaidAmount("");
+      setPaidNotes("");
+      await loadPayments();
+      await loadStatistics();
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "د فیس تادیې کې ستونزه رامنځته شوه"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const setF = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined }));
@@ -518,7 +610,7 @@ export default function Revenue() {
   const statusLabel = (value) => {
     const statusMap = {
       Paid: "ورکړل شوی",
-      Partial: "نیمګړی",
+      Partial: "پاتې",
       Unpaid: "نه ورکړل شوی",
     };
     return statusMap[value] || value || "—";
@@ -550,17 +642,10 @@ export default function Revenue() {
       valueGetter: (params) => `${Number(params.data?.amount ?? 0)} افغانۍ`,
     },
     {
-      field: "paid",
-      headerName: "ورکړل شوی",
-      flex: 0.7,
-      minWidth: 85,
-      valueGetter: (params) => `${Number(params.data?.paid ?? 0)} افغانۍ`,
-    },
-    {
       field: "status",
       headerName: "حالت",
-      flex: 0.6,
-      minWidth: 80,
+      flex: 0.5,
+      minWidth: 70,
       valueGetter: (params) => statusLabel(params.data?.status),
       cellRenderer: (params) => {
         const status = params.data?.status;
@@ -579,15 +664,26 @@ export default function Revenue() {
     {
       field: "actions",
       headerName: "",
-      flex: 0.9,
-      minWidth: 140,
+      flex: 1.2,
+      minWidth: 180,
       sortable: false,
       filter: false,
       cellRenderer: (params) => {
         const p = params.data;
         if (!p) return null;
+        const hasRemaining = (p.status === "Unpaid" || p.status === "Partial");
         return (
           <div className="flex items-center gap-0.5 h-full">
+            {hasRemaining && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openMarkAsPaid(p); }}
+                className="p-1.5 rounded hover:bg-muted text-emerald-600"
+                title="د تادیې په توګه نښه کړئ"
+              >
+                <CheckCircle className="size-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); openView(p); }}
@@ -632,81 +728,26 @@ export default function Revenue() {
         );
       },
     },
-  ], [openView, openEdit, openDelete, handlePrintReceipt, handleDownloadReceipt]);
+  ], [openView, openEdit, openDelete, handlePrintReceipt, handleDownloadReceipt, openMarkAsPaid]);
 
   // Filter component
-  function FeeFilterBar() {
-    return (
-      <div className="bg-card border rounded-md p-3 space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">فلټر:</span>
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-            <input
-              type="text"
-              placeholder="نوم یا رسید نمبر..."
-              value={filters.search}
-              onChange={(e) => { setFilters({ ...filters, search: e.target.value }); setPage(1); }}
-              className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            
-            <div className="min-w-[140px]">
-              <ShamsiYearPicker
-                value={filters.academicYear}
-                onChange={(y) => { setFilters({ ...filters, academicYear: y }); setPage(1); }}
-                placeholder="تعلیمي کال (ټول)"
-              />
-            </div>
-            
-            <select
-              value={filters.enrollmentType}
-              onChange={(e) => { setFilters({ ...filters, enrollmentType: e.target.value }); setPage(1); }}
-              className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="">ټول ډولونه</option>
-              {ENROLL_TYPES.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            
-            <select
-              value={filters.status}
-              onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setPage(1); }}
-              className="text-xs border border-input bg-background rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="">ټول حالتونه</option>
-              <option value="Paid">ورکړل شوی</option>
-              <option value="Partial">نیمګړی</option>
-              <option value="Unpaid">نه ورکړل شوی</option>
-            </select>
-
-            <div className="min-w-[140px]">
-              <ShamsiMonthPicker
-                value={filters.month}
-                onChange={(m) => { setFilters({ ...filters, month: m }); setPage(1); }}
-                placeholder="میاشت (ټول)"
-                allowClear
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setFilters({ search: "", academicYear: "", enrollmentType: "", status: "", month: "", startDate: "", endDate: "" }); setPage(1); }}
-            className="text-xs border border-input rounded px-2.5 py-1.5 hover:bg-muted text-muted-foreground"
-          >
-            پاکول
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Fee filter definitions
+  const FEE_FILTERS = [
+    { key: "search", label: "لټون", type: "input", placeholder: "نوم یا رسید نمبر..." },
+    { key: "month", label: "میاشت او کال", type: "shamsiMonth", placeholder: "میاشت او کال" },
+    { key: "status", label: "حالت", type: "select", options: [
+      { value: "Unpaid", label: "نه ورکړل شوی" },
+      { value: "Partial", label: "نیمګړی" },
+      { value: "Paid", label: "ورکړل شوی" },
+    ]},
+    { key: "enrollmentType", label: "ډول", type: "select", options: visibleEnrollTypes.map(({ value, label }) => ({ value, label })) },
+  ];
 
   return (
     <div className="space-y-4">
       <PageHeader 
         title="د فیس مدیریت" 
-        subtitle={filters.academicYear ? `${filters.academicYear} تعلیمي کال` : "ټول فیسونه"}
+        subtitle={filters.month ? `${filters.month}` : "ټول فیسونه"}
         actions={
           <button onClick={openNew} className="text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 flex items-center gap-1.5">
             <Plus className="size-3.5" /> نوی فیس
@@ -744,7 +785,25 @@ export default function Revenue() {
         </div>
       )}
 
-      <FeeFilterBar />
+      <FilterBar
+        filters={FEE_FILTERS}
+        defaultValues={{
+          month: currentShamsiYearMonth(),
+          status: "Unpaid"  // Default to Unpaid
+        }}
+        onApply={(f) => { setFilters(f); setPage(1); }}
+        onClear={() => { 
+          setFilters({
+            search: "",
+            enrollmentType: "",
+            status: "Unpaid",
+            month: currentShamsiYearMonth(),
+            startDate: "",
+            endDate: "",
+          }); 
+          setPage(1); 
+        }}
+      />
 
       <AgGridTable
         columnDefs={columnDefs}
@@ -904,7 +963,7 @@ export default function Revenue() {
                         onChange={(e) => setSelectedType(e.target.value)}
                         className={SEL}
                       >
-                        {ENROLL_TYPES.map(({ value, label }) => (
+                        {visibleEnrollTypes.map(({ value, label }) => (
                           <option key={value} value={value}>{label}</option>
                         ))}
                       </select>
@@ -1187,6 +1246,103 @@ export default function Revenue() {
                 <p className="text-sm font-medium">{viewPayment.collectedBy}</p>
               </div>
             )}
+          </div>
+        )}
+      </ErpModal>
+
+      {/* Mark as Paid Modal */}
+      <ErpModal
+        open={markPaidOpen}
+        onOpenChange={setMarkPaidOpen}
+        title="د تادیې تایید"
+        size="sm"
+        footer={
+          <>
+            <button
+              onClick={() => setMarkPaidOpen(false)}
+              className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted"
+              disabled={loading}
+            >
+              لغوه
+            </button>
+            <button
+              onClick={handleMarkAsPaid}
+              className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded font-medium hover:bg-emerald-700"
+              disabled={loading}
+            >
+              {loading ? "...په ثبتیدو کې" : "تادیه کړئ"}
+            </button>
+          </>
+        }
+      >
+        {selectedForPaid && (
+          <div className="space-y-4">
+            <div className="bg-muted/50 rounded-md p-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">زده کوونکی:</span>
+                <span className="font-medium">{selectedForPaid.studentName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">ټول فیس:</span>
+                <span className="font-semibold">{selectedForPaid.amount} افغانۍ</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">ورکړل شوی:</span>
+                <span className="font-semibold text-green-600">{selectedForPaid.paid || 0} افغانۍ</span>
+              </div>
+              <div className="flex justify-between border-t border-border pt-2">
+                <span className="text-muted-foreground">پاتې فیس:</span>
+                <span className="font-bold text-orange-600">{selectedForPaid.remaining || selectedForPaid.amount} افغانۍ</span>
+              </div>
+            </div>
+
+            <F label="ټول فیس (افغانۍ) — د زیاتولو/کمولو لپاره">
+              <Input
+                type="number"
+                value={feeAmount}
+                handleChanges={(e) => setFeeAmount(e.target.value)}
+                placeholder="0"
+                min="0"
+                step="0.01"
+              />
+            </F>
+
+            <F label="د تادیې مقدار (افغانۍ)" error={errors.paidAmount}>
+              <Input
+                type="number"
+                value={paidAmount}
+                handleChanges={(e) => setPaidAmount(e.target.value)}
+                placeholder="0"
+                min="0"
+                step="0.01"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                پاتې به وي: {Math.max(0, Number(feeAmount || 0) - Number(selectedForPaid.paid || 0) - Number(paidAmount || 0)).toLocaleString()} افغانۍ
+              </p>
+            </F>
+
+            <F label="نیټه" opt>
+              <ShamsiDatePicker
+                value={paidDate}
+                onChange={(d) => setPaidDate(d)}
+                placeholder="نیټه غوره کړئ"
+              />
+            </F>
+
+            <F label="یادښتونه" opt>
+              <textarea
+                value={paidNotes}
+                onChange={(e) => setPaidNotes(e.target.value)}
+                placeholder="یادښتونه (اختیاري)"
+                className={SEL}
+                rows="2"
+              />
+            </F>
+
+            <div className="bg-emerald-50 border border-emerald-200 rounded-md p-2 text-xs text-emerald-800">
+              <p className="font-medium">⚠️ یادونه:</p>
+              <p>د تادیې تڼۍ کلیک کولو سره، د فیس حالت اتوماتیک تازه کیږي.</p>
+            </div>
           </div>
         )}
       </ErpModal>

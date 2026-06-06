@@ -1,0 +1,59 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║            📊 PM2 COMMANDS - QUICK REFERENCE 📊               ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+🚀 BASIC COMMANDS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pm2 status              Check if server is running
+pm2 logs                View server logs (live)
+pm2 restart all         Restart the server
+pm2 stop all            Stop the server
+pm2 start all           Start the server
+pm2 delete all          Remove server from PM2
+
+
+📊 MONITORING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pm2 monit               Live monitoring dashboard
+pm2 list                List all processes
+pm2 show school-server  Detailed info about server
+
+
+📝 LOGS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pm2 logs                All logs (live)
+pm2 logs --lines 100    Last 100 lines
+pm2 flush               Clear all logs
+
+
+🔧 ADVANCED:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pm2 save                Save current process list
+pm2 resurrect           Restore saved processes
+pm2 unstartup           Remove auto-start
+
+
+💡 EXAMPLE USAGE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check server status:
+  → Open Command Prompt
+  → Type: pm2 status
+  → Press Enter
+
+View logs:
+  → Type: pm2 logs
+  → Press Ctrl+C to exit
+
+Restart server:
+  → Type: pm2 restart all
+
+
+═══════════════════════════════════════════════════════════════════

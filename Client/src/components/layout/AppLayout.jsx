@@ -41,7 +41,7 @@ export function AppLayout() {
             else setCollapsed((c) => !c);
           }}
         />
-        <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-x-hidden min-w-0 max-w-full safe-area-bottom">
           <Outlet />
         </main>
       </div>

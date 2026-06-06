@@ -8,10 +8,6 @@ export const createExpenseCategoryValidator = [
     .matches(/^[\u0600-\u06FF\u200C\u200Da-zA-Z\s]+$/).withMessage("validation.expense.categoryNameInvalid")
     .isLength({ min: 2, max: 100 }).withMessage("validation.expense.categoryNameLength"),
 
-  body("nameEn")
-    .optional({ checkFalsy: true })
-    .matches(/^[a-zA-Z\s]+$/).withMessage("validation.expense.categoryNameEnInvalid")
-    .isLength({ min: 2, max: 100 }).withMessage("validation.expense.categoryNameEnLength"),
 ];
 
 export const updateExpenseCategoryValidator = [
@@ -19,11 +15,6 @@ export const updateExpenseCategoryValidator = [
     .optional()
     .matches(/^[\u0600-\u06FF\u200C\u200Da-zA-Z\s]+$/).withMessage("validation.expense.categoryNameInvalid")
     .isLength({ min: 2, max: 100 }).withMessage("validation.expense.categoryNameLength"),
-
-  body("nameEn")
-    .optional({ checkFalsy: true })
-    .matches(/^[a-zA-Z\s]+$/).withMessage("validation.expense.categoryNameEnInvalid")
-    .isLength({ min: 2, max: 100 }).withMessage("validation.expense.categoryNameEnLength"),
 ];
 
 export const createExpenseValidator = [

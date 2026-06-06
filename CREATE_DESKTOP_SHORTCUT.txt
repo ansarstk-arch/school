@@ -1,0 +1,14 @@
+═══════════════════════════════════════════════════════════════════
+  HOW TO CREATE A DESKTOP SHORTCUT (OPTIONAL - MAKES IT EASIER)
+═══════════════════════════════════════════════════════════════════
+
+Follow these steps to create a shortcut on your desktop:
+
+1. RIGHT-CLICK on "START_SERVER.bat"
+2. Click "Send to" → "Desktop (create shortcut)"
+3. A shortcut will appear on your desktop
+4. (Optional) Rename it to "Start School System"
+
+Now you can double-click the desktop icon to start everything!
+
+═══════════════════════════════════════════════════════════════════

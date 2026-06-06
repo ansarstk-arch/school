@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getAllAttendance,
   getPeopleForAttendance,
+  getServerToday,
   bulkCreateAttendance,
   qrAttendance,
   getAttendanceStats,
@@ -30,6 +31,9 @@ router.get("/stats/summary", getAttendanceStats);
 
 // Get people for attendance (students/staff)
 router.get("/people/list", getPeopleForAttendance);
+
+// Server today date (Afghanistan timezone)
+router.get("/today", getServerToday);
 
 // Download attendance report
 router.get("/download/report", downloadAttendanceReport);

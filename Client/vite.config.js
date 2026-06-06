@@ -10,6 +10,18 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: "0.0.0.0",
+    cors: true,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+      "/uploads": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {

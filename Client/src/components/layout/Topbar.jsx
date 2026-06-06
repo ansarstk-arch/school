@@ -1,12 +1,11 @@
-import { Bell, ChevronDown, LogOut, Menu, Search, Sun, Moon, KeyRound, User2 } from "lucide-react";
+import { Bell, LogOut, Menu, Search, Sun, Moon, KeyRound, ChevronDown } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useStore } from "@/store/useStore";
 import { useNavigate } from "react-router-dom";
-import { SESSIONS } from "@/constants";
-import { todayAfghan } from "@/lib/afghan-date";
 import { ErpModal } from "@/components/erp/ErpModal";
 import { Input } from "@/components/ui/Input";
 import { toast } from "sonner";
+import * as searchApi from "@/data/searchApi";
 
 function UserMenu({ onChangePw }) {
   const [open, setOpen] = useState(false);
@@ -30,13 +29,10 @@ function UserMenu({ onChangePw }) {
     }
   };
 
-  // Get initials from name
   const getInitials = (name) => {
     if (!name) return "AD";
     const parts = name.trim().split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.substring(0, 2).toUpperCase();
   };
 
@@ -52,11 +48,8 @@ function UserMenu({ onChangePw }) {
         <div className="absolute right-0 top-full mt-1 w-52 bg-card border border-border rounded-md shadow-lg z-50 py-1">
           <div className="px-3 py-2 border-b border-border">
             <p className="text-sm font-medium">{user?.name || "کارمند"}</p>
-            <p className="text-xs text-muted-foreground">{user?.email || ""}</p>
+            <p className="text-xs text-muted-foreground" dir="ltr">{user?.username || user?.email || ""}</p>
           </div>
-          <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted text-left">
-            <User2 className="size-4" /> پروفایل
-          </button>
           <button onClick={() => { setOpen(false); onChangePw(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted text-left">
             <KeyRound className="size-4" /> پاسورډ بدلول
           </button>
@@ -71,36 +64,33 @@ function UserMenu({ onChangePw }) {
 }
 
 export function Topbar({ onToggleSidebar }) {
-  const { session, setSession, scope, setScope, dateMode, setDateMode, dark, setDark, changePassword } = useStore();
+  const { dark, setDark, changePassword, user } = useStore();
+  const isTeacher = user?.role === "teacher";
+  const navigate = useNavigate();
   const [pwOpen, setPwOpen] = useState(false);
   const [pw, setPw] = useState({ currentPassword: "", newPassword: "", confirm: "" });
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
 
   const handleChangePassword = async () => {
-    // Validation
     if (!pw.currentPassword || !pw.newPassword || !pw.confirm) {
       toast.error("ټول برخې ډکې کړئ");
       return;
     }
-
     if (pw.newPassword.length < 6) {
       toast.error("نوی پاسورډ باید لږ تر لږه ۶ توري ولري");
       return;
     }
-
     if (pw.newPassword !== pw.confirm) {
       toast.error("نوی پاسورډ او تایید سره سم نه دي");
       return;
     }
-
     setLoading(true);
     try {
-      await changePassword({
-        currentPassword: pw.currentPassword,
-        newPassword: pw.newPassword,
-      });
+      await changePassword({ currentPassword: pw.currentPassword, newPassword: pw.newPassword });
       toast.success("پاسورډ بدل شو");
       setPwOpen(false);
       setPw({ currentPassword: "", newPassword: "", confirm: "" });
@@ -111,50 +101,64 @@ export function Topbar({ onToggleSidebar }) {
     }
   };
 
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    setSearching(true);
+    try {
+      const response = await searchApi.fastSearch(q);
+      const result = response.data?.result;
+      if (!result) {
+        toast.error("هیڅ پایله ونه موندل شوه");
+        return;
+      }
+      const params = new URLSearchParams();
+      if (result.id) params.set("openId", String(result.id));
+      if (result.openView) params.set("openView", "1");
+      if (result.filter) {
+        Object.entries(result.filter).forEach(([k, v]) => params.set(k, v));
+      }
+      navigate(`${result.route}?${params}`);
+    } catch (error) {
+      toast.error(error.message || "هیڅ پایله ونه موندل شوه");
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <>
       <header className="h-14 sticky top-0 z-30 bg-card border-b border-border flex items-center px-3 gap-3">
-        <button onClick={onToggleSidebar} className="p-2 rounded hover:bg-muted" aria-label="toggle sidebar">
+        <button onClick={onToggleSidebar} className="p-2.5 min-h-[44px] min-w-[44px] rounded hover:bg-muted touch-manipulation" aria-label="toggle sidebar">
           <Menu className="size-4" />
         </button>
 
-        <div className="relative hidden md:flex items-center">
-          <Search className="absolute left-2.5 size-4 text-muted-foreground pointer-events-none" />
+        <div className={`relative hidden md:flex items-center ${isTeacher ? "lg:hidden" : ""}`}>
+          <button
+            onClick={handleSearch}
+            disabled={searching}
+            className="absolute left-2.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+            title="لټون"
+          >
+            <Search className="size-4" />
+          </button>
           <input
-            placeholder="لټون..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder="st-1, th-1, sf-1, ټېلیفون, RCP-..."
             className="pl-8 pr-3 py-1.5 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-ring w-72"
           />
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto">
-            <span className="hidden xl:block text-xs text-muted-foreground border border-input rounded px-2 py-1.5 bg-background select-none shrink-0">{todayAfghan()}</span>
-            <select value={scope} onChange={(e) => setScope(e.target.value)} className="text-xs border border-input bg-background rounded px-2 py-1.5 shrink-0">
-              <option value="All">ټول</option>
-              <option value="School">ښوونځی</option>
-              <option value="Center">مرکز</option>
-              <option value="Madrasa">مدرسه</option>
-            </select>
-
-            <select value={session} onChange={(e) => setSession(e.target.value)} className="text-xs border border-input bg-background rounded px-2 py-1.5 shrink-0">
-              {SESSIONS.map((s) => <option key={s} value={s}>کال {s}</option>)}
-            </select>
-
-            <select value={dateMode} onChange={(e) => setDateMode(e.target.value)} className="hidden sm:block text-xs border border-input bg-background rounded px-2 py-1.5 shrink-0">
-              <option value="shamsi">لمریز</option>
-              <option value="gregorian">میلادي</option>
-            </select>
-
-            <button onClick={() => setDark(!dark)} className="p-2 rounded hover:bg-muted shrink-0">
-              {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-            </button>
-
-            <button className="p-2 rounded hover:bg-muted relative shrink-0">
-              <Bell className="size-4" />
-              <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-destructive" />
-            </button>
-          </div>
-
+          <button onClick={() => setDark(!dark)} className="p-2 rounded hover:bg-muted shrink-0">
+            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </button>
+          <button className="p-2 rounded hover:bg-muted relative shrink-0">
+            <Bell className="size-4" />
+            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-destructive" />
+          </button>
           <UserMenu onChangePw={() => setPwOpen(true)} />
         </div>
       </header>
@@ -170,27 +174,9 @@ export function Topbar({ onToggleSidebar }) {
         }
       >
         <div className="space-y-3">
-          <Input 
-            type="password" 
-            label="اوسنی پاسورډ" 
-            value={pw.currentPassword} 
-            handleChanges={(e) => setPw((p) => ({ ...p, currentPassword: e.target.value }))} 
-            disabled={loading}
-          />
-          <Input 
-            type="password" 
-            label="نوی پاسورډ" 
-            value={pw.newPassword} 
-            handleChanges={(e) => setPw((p) => ({ ...p, newPassword: e.target.value }))} 
-            disabled={loading}
-          />
-          <Input 
-            type="password" 
-            label="تایید" 
-            value={pw.confirm} 
-            handleChanges={(e) => setPw((p) => ({ ...p, confirm: e.target.value }))} 
-            disabled={loading}
-          />
+          <Input type="password" label="اوسنی پاسورډ" value={pw.currentPassword} handleChanges={(e) => setPw((p) => ({ ...p, currentPassword: e.target.value }))} disabled={loading} />
+          <Input type="password" label="نوی پاسورډ" value={pw.newPassword} handleChanges={(e) => setPw((p) => ({ ...p, newPassword: e.target.value }))} disabled={loading} />
+          <Input type="password" label="تایید" value={pw.confirm} handleChanges={(e) => setPw((p) => ({ ...p, confirm: e.target.value }))} disabled={loading} />
         </div>
       </ErpModal>
     </>

@@ -3,6 +3,8 @@ import { asyncHandler } from "../../utils/AsyncHandler.util.js";
 import db from "../../configs/db/db.config.js";
 import { classes, teachers, exams } from "../../db/schema.js";
 import ApiError from "../../utils/ApiError.util.js";
+import { currentShamsiYear } from "../../lib/afghan-date.js";
+import { assertInstitutionAccess } from "../../utils/permissions.util.js";
 
 // ─── GET ALL CLASSES ───────────────────────────────────────────────────────────
 export const getAllClasses = asyncHandler(async (req, res) => {
@@ -12,7 +14,14 @@ export const getAllClasses = asyncHandler(async (req, res) => {
 
   if (name)         conditions.push(like(classes.name, `%${name}%`));
   if (type)         conditions.push(eq(classes.type, type));
-  if (academicYear) conditions.push(eq(classes.academicYear, academicYear));
+  
+  // Always filter by academic year (Shamsi — use current session if not provided)
+  const year = academicYear ? String(academicYear) : String(currentShamsiYear());
+  conditions.push(eq(classes.academicYear, year));
+
+  if (type) {
+    assertInstitutionAccess(req.user?.permissions, req.user?.role, type);
+  }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

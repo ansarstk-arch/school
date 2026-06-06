@@ -5,7 +5,7 @@ export const registerValidator = [
     .trim()
     .notEmpty()
     .withMessage("نوم اړین دی"),
-  
+
   body("email")
     .trim()
     .notEmpty()
@@ -13,14 +13,14 @@ export const registerValidator = [
     .isEmail()
     .withMessage("بریښنالیک سم نه دی")
     .normalizeEmail(),
-  
+
   body("password")
     .trim()
     .notEmpty()
     .withMessage("پاسورډ اړین دی")
     .isLength({ min: 6 })
     .withMessage("پاسورډ باید لږ تر لږه ۶ توري ولري"),
-  
+
   body("role")
     .optional()
     .isIn(["admin", "registrar", "teacher", "accountant", "custom"])
@@ -28,18 +28,19 @@ export const registerValidator = [
 ];
 
 export const loginValidator = [
-  body("email")
-    .trim()
-    .notEmpty()
-    .withMessage("بریښنالیک اړین دی")
-    .isEmail()
-    .withMessage("بریښنالیک سم نه دی")
-    .normalizeEmail(),
-  
   body("password")
     .trim()
     .notEmpty()
     .withMessage("پاسورډ اړین دی"),
+
+  body().custom((_, { req }) => {
+    const loginId = String(req.body?.identifier || req.body?.email || "").trim();
+    if (!loginId) {
+      throw new Error("بریښنالیک یا کارن نوم اړین دی");
+    }
+    req.body.loginId = loginId;
+    return true;
+  }),
 ];
 
 export const changePasswordValidator = [
@@ -47,7 +48,7 @@ export const changePasswordValidator = [
     .trim()
     .notEmpty()
     .withMessage("اوسنی پاسورډ اړین دی"),
-  
+
   body("newPassword")
     .trim()
     .notEmpty()

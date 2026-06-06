@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/erp/PageHeader";
 import { AgGridTable } from "@/components/erp/AgGridTable";
+import { FilterBar } from "@/components/erp/FilterBar";
 import { ErpModal } from "@/components/erp/ErpModal";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
 import { Settings2, Pencil, Trash2, Eye, Save } from "lucide-react";
@@ -11,6 +12,14 @@ import * as marksApi from "@/data/marksApi";
 import * as examApi from "@/data/examApi";
 import { getAllClasses } from "@/data/classApi";
 import { INSTITUTION_TYPES, SEL } from "@/utils/marksShared";
+
+const F = ({ label, error, children }) => (
+  <label className="flex flex-col gap-1">
+    <span className="text-xs text-muted-foreground">{label}</span>
+    {children}
+    {error && <span className="text-[11px] text-destructive">{error}</span>}
+  </label>
+);
 
 export default function MarksExamConfigPage() {
   const session = useStore((s) => s.session);
@@ -24,6 +33,13 @@ export default function MarksExamConfigPage() {
     institutionType: "School",
     classId: "",
   });
+
+  // Filter state for saved configurations table
+  const [listFilters, setListFilters] = useState({ 
+    academicYear: session || String(currentShamsiYear()) 
+  });
+  const [filterExams, setFilterExams] = useState([]);
+  const [filterClasses, setFilterClasses] = useState([]);
 
   // Modal state for subject management
   const [manageOpen, setManageOpen] = useState(false);
@@ -40,6 +56,7 @@ export default function MarksExamConfigPage() {
   const [editForm, setEditForm] = useState({ totalMarks: "", passingMarks: "" });
   const [editId, setEditId] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [editErrors, setEditErrors] = useState({});
 
   // View modal state
   const [viewOpen, setViewOpen] = useState(false);
@@ -50,12 +67,14 @@ export default function MarksExamConfigPage() {
   const [deleteId, setDeleteId] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Fetch exams for current year on mount
+  // Fetch exams when institution type changes
   useEffect(() => {
     const fetchExams = async () => {
+      if (!setup.institutionType) return;
       try {
         const res = await examApi.getAllExams({
           academicYear,
+          institutionType: setup.institutionType,
           limit: 200,
         });
         if (res.success) {
@@ -66,12 +85,12 @@ export default function MarksExamConfigPage() {
       }
     };
     fetchExams();
-  }, [academicYear]);
+  }, [setup.institutionType, academicYear]);
 
-  // Fetch classes when institution type changes
+  // Fetch classes when institution type and exam are selected
   useEffect(() => {
     const fetchClasses = async () => {
-      if (!setup.institutionType) return;
+      if (!setup.institutionType || !setup.examId) return;
       try {
         const res = await getAllClasses({
           type: setup.institutionType,
@@ -86,14 +105,60 @@ export default function MarksExamConfigPage() {
       }
     };
     fetchClasses();
-  }, [setup.institutionType, academicYear]);
+  }, [setup.institutionType, setup.examId, academicYear]);
+
+  // Fetch filter exams when filter institution type changes
+  useEffect(() => {
+    const fetchFilterExams = async () => {
+      if (!listFilters.institutionType) {
+        setFilterExams([]);
+        return;
+      }
+      try {
+        const res = await examApi.getAllExams({
+          academicYear: listFilters.academicYear || academicYear,
+          institutionType: listFilters.institutionType,
+          limit: 200,
+        });
+        if (res.success) {
+          setFilterExams(res.data.exams || []);
+        }
+      } catch (e) {
+        toast.error("د امتحانونو د ترلاسه کولو کې ستونزه");
+      }
+    };
+    fetchFilterExams();
+  }, [listFilters.institutionType, listFilters.academicYear, academicYear]);
+
+  // Fetch filter classes when filter institution type and exam are selected
+  useEffect(() => {
+    const fetchFilterClasses = async () => {
+      if (!listFilters.institutionType || !listFilters.examId) {
+        setFilterClasses([]);
+        return;
+      }
+      try {
+        const res = await getAllClasses({
+          type: listFilters.institutionType,
+          academicYear: listFilters.academicYear || academicYear,
+          limit: 200,
+        });
+        if (res.success) {
+          setFilterClasses(res.data.classes || []);
+        }
+      } catch (e) {
+        toast.error("د ټولګیو د ترلاسه کولو کې ستونزه");
+      }
+    };
+    fetchFilterClasses();
+  }, [listFilters.institutionType, listFilters.examId, listFilters.academicYear, academicYear]);
 
   // Fetch saved configurations for table
   const fetchConfigs = async () => {
     setLoading(true);
     try {
       const res = await marksApi.getAllExamSubjectConfigs({
-        academicYear,
+        ...listFilters,
         limit: 500,
       });
       if (res.success) {
@@ -108,7 +173,7 @@ export default function MarksExamConfigPage() {
 
   useEffect(() => {
     fetchConfigs();
-  }, [academicYear]);
+  }, [listFilters]);
 
   // Load subjects when "Show Subjects" is clicked
   const loadSubjectsForSetup = async () => {
@@ -323,14 +388,32 @@ export default function MarksExamConfigPage() {
       <div className="bg-card border border-border rounded-md p-4 space-y-3">
         <p className="text-sm font-medium">د مضامینو تنظیم</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* 1. First select Institution Type */}
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">امتحان</span>
+            <span className="text-xs text-muted-foreground">۱. ادارې ډول</span>
+            <select
+              className={SEL}
+              value={setup.institutionType}
+              onChange={(e) =>
+                setSetup((s) => ({ ...s, institutionType: e.target.value, examId: "", classId: "" }))
+              }
+            >
+              {INSTITUTION_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+          
+          {/* 2. Then select Exam (disabled until type is selected) */}
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">۲. امتحان</span>
             <select
               className={SEL}
               value={setup.examId}
               onChange={(e) =>
                 setSetup((s) => ({ ...s, examId: e.target.value, classId: "" }))
               }
+              disabled={!setup.institutionType}
             >
               <option value="">امتحان غوره کړئ</option>
               {exams.map((ex) => (
@@ -341,27 +424,14 @@ export default function MarksExamConfigPage() {
             </select>
           </label>
           
+          {/* 3. Finally select Class (disabled until exam is selected) */}
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">ادارې ډول</span>
-            <select
-              className={SEL}
-              value={setup.institutionType}
-              onChange={(e) =>
-                setSetup((s) => ({ ...s, institutionType: e.target.value, classId: "" }))
-              }
-            >
-              {INSTITUTION_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </label>
-          
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">ټولګی</span>
+            <span className="text-xs text-muted-foreground">۳. ټولګی</span>
             <select
               className={SEL}
               value={setup.classId}
               onChange={(e) => setSetup((s) => ({ ...s, classId: e.target.value }))}
+              disabled={!setup.examId}
             >
               <option value="">ټولګی غوره کړئ</option>
               {classes.map((c) => (
@@ -392,13 +462,77 @@ export default function MarksExamConfigPage() {
       </div>
 
       {/* Saved Configurations Table */}
-      <div className="bg-card border border-border rounded-md p-4">
-        <p className="text-sm font-medium mb-3">ثبت شوي تنظیمات</p>
-        <AgGridTable
-          columnDefs={listColumnDefs}
-          rowData={configs}
-          loading={loading}
+      <div className="space-y-3">
+        <FilterBar
+          filters={useMemo(
+            () => [
+              { key: "search", label: "لټون", type: "input", placeholder: "امتحان، مضمون…" },
+              {
+                key: "institutionType",
+                label: "۱. ادارې ډول",
+                type: "select",
+                options: INSTITUTION_TYPES,
+              },
+              {
+                key: "examId",
+                label: "۲. امتحان",
+                type: "select",
+                options: filterExams.map((e) => ({
+                  value: String(e.id),
+                  label: e.examTitle,
+                })),
+                disabled: !listFilters.institutionType,
+              },
+              {
+                key: "classId",
+                label: "۳. ټولګی",
+                type: "select",
+                options: filterClasses.map((c) => ({
+                  value: String(c.id),
+                  label: `${c.name}${c.section ? ` (${c.section})` : ""}`,
+                })),
+                disabled: !listFilters.examId,
+              },
+              { key: "academicYear", label: "تعلیمي کال", type: "shamsiYear" },
+            ],
+            [filterExams, filterClasses, listFilters.institutionType, listFilters.examId]
+          )}
+          defaultValues={{ academicYear: session || String(currentShamsiYear()) }}
+          onApply={(newFilters) => {
+            // Handle cascading: when type changes, reset exam and class
+            if (newFilters.institutionType !== listFilters.institutionType) {
+              setListFilters({ 
+                ...newFilters, 
+                examId: "", 
+                classId: "" 
+              });
+            }
+            // When exam changes, reset class
+            else if (newFilters.examId !== listFilters.examId) {
+              setListFilters({ 
+                ...newFilters, 
+                classId: "" 
+              });
+            }
+            // Normal update
+            else {
+              setListFilters(newFilters);
+            }
+          }}
+          onClear={() => {
+            const y = session || String(currentShamsiYear());
+            setListFilters({ academicYear: y });
+          }}
         />
+        
+        <div className="bg-card border border-border rounded-md p-4">
+          <p className="text-sm font-medium mb-3">ثبت شوي تنظیمات</p>
+          <AgGridTable
+            columnDefs={listColumnDefs}
+            rowData={configs}
+            loading={loading}
+          />
+        </div>
       </div>
 
       {/* Manage Modal - Shows when "Show Subjects" is clicked */}
@@ -578,7 +712,7 @@ export default function MarksExamConfigPage() {
             await marksApi.deleteExamSubjectConfig(deleteId);
             toast.success("تنظیم ړنګ شو");
             setDeleteOpen(false);
-            fetchList(page, listFilters);
+            fetchConfigs(); // Refresh table
           } catch (e) {
             toast.error(e.message);
           } finally {

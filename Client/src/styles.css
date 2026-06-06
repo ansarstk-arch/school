@@ -136,3 +136,29 @@
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+
+/* Safe area for mobile notches / home indicator */
+.safe-area-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* Touch-friendly tap targets */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Modal — full screen on small phones */
+@media (max-width: 640px) {
+  .ReactModal__Overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .ReactModal__Content {
+    max-height: 92vh;
+    border-radius: 0.75rem 0.75rem 0 0;
+    margin-top: auto;
+  }
+}
+

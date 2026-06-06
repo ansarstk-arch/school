@@ -17,8 +17,9 @@ const ERRORS = {
   fatherNameLength: "د پلار نوم باید د ۲ څخه تر ۱۰۰ توري پورې وي",
   grandFatherNameInvalid: "د نیکه نوم یوازې پښتو، دري یا انګلیسي توري ولري",
   grandFatherNameLength: "د نیکه نوم باید د ۲ څخه تر ۱۰۰ توري پورې وي",
-  phoneInvalid: "ټېلیفون نمبر باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)",
-  emergencyContactInvalid: "بېړنۍ اړیکه باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)",
+  parentNumber1Required: "د والد نمبر ۱ اړین دی",
+  parentNumber1Invalid: "د والد نمبر ۱ باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)",
+  parentNumber2Invalid: "د والد نمبر ۲ باید د افغانستان د فارمټ سره سم وي (+93 7XX XXX XXX)",
   idCardLength: "تذکیره نمبر باید د ۵ څخه تر ۲۰ توري پورې وي",
   genderInvalid: "جنسیت باید نر یا ښځینه وي",
   addressInvalid: "پته یوازې پښتو، دري، انګلیسي توري او عددونه ولري",
@@ -48,13 +49,13 @@ const baseStudentFields = [
     .matches(nameRegex).withMessage(ERRORS.grandFatherNameInvalid)
     .isLength({ min: 2, max: 100 }).withMessage(ERRORS.grandFatherNameLength),
 
-  body("phone")
-    .optional({ checkFalsy: true })
-    .matches(phoneRegex).withMessage(ERRORS.phoneInvalid),
+  body("parentNumber1")
+    .notEmpty().withMessage(ERRORS.parentNumber1Required)
+    .matches(phoneRegex).withMessage(ERRORS.parentNumber1Invalid),
 
-  body("emergencyContact")
+  body("parentNumber2")
     .optional({ checkFalsy: true })
-    .matches(phoneRegex).withMessage(ERRORS.emergencyContactInvalid),
+    .matches(phoneRegex).withMessage(ERRORS.parentNumber2Invalid),
 
   body("idCardNumber")
     .optional({ checkFalsy: true })
@@ -179,13 +180,13 @@ export const updateStudentValidator = [
     .matches(nameRegex).withMessage(ERRORS.grandFatherNameInvalid)
     .isLength({ min: 2, max: 100 }).withMessage(ERRORS.grandFatherNameLength),
 
-  body("phone")
+  body("parentNumber1")
     .optional({ checkFalsy: true })
-    .matches(phoneRegex).withMessage(ERRORS.phoneInvalid),
+    .matches(phoneRegex).withMessage(ERRORS.parentNumber1Invalid),
 
-  body("emergencyContact")
+  body("parentNumber2")
     .optional({ checkFalsy: true })
-    .matches(phoneRegex).withMessage(ERRORS.emergencyContactInvalid),
+    .matches(phoneRegex).withMessage(ERRORS.parentNumber2Invalid),
 
   body("idCardNumber")
     .optional({ checkFalsy: true })

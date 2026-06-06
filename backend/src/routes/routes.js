@@ -20,6 +20,8 @@ import resultPrepRoutes from "./result-prep/result-prep.route.js";
 import promotionRoutes from "./promotion/promotion.route.js";
 import reportCardRoutes from "./report-card/report-card.routes.js";
 import smsRoutes from "./sms/sms.route.js";
+import inventoryRoutes from "./inventory/inventory.route.js";
+import searchRoutes from "./search/search.route.js";
 
 const router = Router();
 
@@ -45,5 +47,7 @@ router.use("/result-prep", resultPrepRoutes);
 router.use("/promotions", promotionRoutes);
 router.use("/report-cards", reportCardRoutes);
 router.use("/sms", smsRoutes);
+router.use("/inventory", inventoryRoutes);
+router.use("/search", searchRoutes);
 
 export default router;

@@ -5,14 +5,16 @@ import { ErpModal } from "@/components/erp/ErpModal";
 import { FilterBar } from "@/components/erp/FilterBar";
 import { Input } from "@/components/ui/Input";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Pencil, Trash2, Eye, UserPlus, ArrowUpRight, Upload, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Plus, Pencil, Trash2, Eye, UserPlus, ArrowUpRight, Upload, X, UserX, UserCheck, KeyRound } from "lucide-react";
+import { ShamsiDatePicker } from "@/components/erp/ShamsiDatePicker";
+import { currentShamsiYear } from "@/lib/afghan-date";
 import { ConfirmDelete } from "@/components/erp/ConfirmDelete";
+import { ConfirmStatus } from "@/components/erp/ConfirmStatus";
 import { DEFAULT_SUBJECTS } from "@/constants";
 import * as teacherApi from "@/data/teacherApi";
 import { toast } from "sonner";
 import { exportTeachersToExcel, exportApplicantsToExcel } from "@/utils/excelExport";
-import { exportTeachersPDF, exportApplicantsPDF } from "@/utils/pdfDownload";
-import { PdfDownloadButton } from "@/components/erp/PdfDownloadButton";
 import { ImageLightbox } from "@/components/erp/ImageLightbox";
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:3000';
@@ -38,11 +40,11 @@ const EDU_VARIANT = { grade12: "muted", grade14: "muted", bachelor: "info", mast
 
 const TEACHER_TYPES = [
   { value: "School",  label: "ښوونځی", variant: "info"    },
-  { value: "Center",  label: "مرکز",   variant: "muted"   },
+  { value: "Center",  label: "سینټر",   variant: "muted"   },
   { value: "Madrasa", label: "مدرسه",  variant: "warning" },
 ];
 
-const EMPTY_TEACHER   = { name: "", fatherName: "", phone: "", idCardNumber: "", salary: "", education: "", teacherType: ["School"], skills: "", address: "", joiningDate: "", notes: "", image: null, removeImage: false };
+const EMPTY_TEACHER   = { name: "", fatherName: "", phone: "", idCardNumber: "", salary: "", education: "", teacherType: ["School"], assignedClasses: [], username: "", password: "", skills: "", address: "", joiningDate: "", notes: "", image: null, removeImage: false };
 const EMPTY_APPLICANT = { name: "", fatherName: "", phone: "", education: "", skills: "", address: "", appliedAt: "", notes: "" };
 
 // ─── Image Upload Field ────────────────────────────────────────────────────────
@@ -98,6 +100,18 @@ function ImageUploadField({ currentImage, onFileChange, onRemove }) {
 
 const getToday = () => new Date().toISOString().split("T")[0];
 
+const mapTeacherApiError = (message) => {
+  const msg = message || "";
+  const errors = {};
+  if (msg.includes("کارن نوم")) errors.username = msg;
+  else if (msg.includes("ټېلیفون")) errors.phone = msg;
+  else if (msg.includes("معاش")) errors.salary = msg;
+  else if (msg.includes("ډول")) errors.teacherType = msg;
+  else if (msg.includes("پاسورډ")) errors.password = msg;
+  else errors._form = msg || "د ښوونکي په ثبتولو کې تېروتنه";
+  return errors;
+};
+
 
 
 const SubjectSelect   = ({ value, onChange }) => (<select value={value} onChange={onChange} className={SEL}><option value="">— مضمون وټاکئ —</option>{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}</select>);
@@ -146,7 +160,9 @@ const validateTeacher = (data) => {
     errors.idCardNumber = "تذکیره نمبر باید د ۵ څخه تر ۲۰ توري پورې وي";
   }
 
-  if (data.salary && (isNaN(data.salary) || Number(data.salary) < 0)) {
+  if (data.salary === "" || data.salary === undefined || data.salary === null) {
+    errors.salary = "معاش اړین دی";
+  } else if (isNaN(data.salary) || Number(data.salary) < 0) {
     errors.salary = "معاش باید مثبت عدد وي";
   }
 
@@ -220,13 +236,16 @@ const TEACHER_FILTERS = [
   { key: "education", label: "زده کړه",    type: "select", options: EDUCATION_LEVELS.map(({ value, label }) => ({ value, label })) },
   { key: "teacherType", label: "د ښوونکي ډول", type: "select", options: TEACHER_TYPES.map(({ value, label }) => ({ value, label })) },
   { key: "joiningYear", label: "د شمولیت کال", type: "shamsiYear", placeholder: "د شمولیت کال" },
+  { key: "status", label: "حالت", type: "select", options: [
+    { value: "active", label: "فعال" },
+    { value: "inactive", label: "غیر فعال" },
+  ]},
 ];
 const APPLICANT_FILTERS = [
   { key: "name",     label: "د نوم لټون",    type: "input", placeholder: "د غوښتونکي نوم..." },
   { key: "phone",    label: "ټېلیفون نمبر",  type: "input", placeholder: "+93 7XX XXX XXX" },
   { key: "skills",   label: "مهارتونه",      type: "input", placeholder: "مهارتونه..." },
-  { key: "dateFrom", label: "له نېټې",       type: "shamsiDate" },
-  { key: "dateTo",   label: "تر نېټې",       type: "shamsiDate" },
+  { key: "appliedYear", label: "د غوښتنې کال", type: "shamsiYear", placeholder: "د غوښتنې کال" },
 ];
 
 export default function TeachersPage() {
@@ -242,7 +261,9 @@ export default function TeachersPage() {
   const [applicant, setApplicant]       = useState(EMPTY_APPLICANT);
   const [selected, setSelected]         = useState(null);
   const [selectedKind, setSelectedKind]   = useState(null);
-  const [tFilters, setTFilters]         = useState({});
+  const [tFilters, setTFilters]         = useState({ joiningYear: String(currentShamsiYear()) });
+  const [availableClasses, setAvailableClasses] = useState([]);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [aFilters, setAFilters]         = useState({});
   const [teacherErrors, setTeacherErrors] = useState({});
   const [applicantErrors, setApplicantErrors] = useState({});
@@ -253,20 +274,26 @@ export default function TeachersPage() {
   
   // Pagination states
   const [teacherPage, setTeacherPage]   = useState(1);
-  const [teacherPagination, setTeacherPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [teacherPagination, setTeacherPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [applicantPage, setApplicantPage] = useState(1);
-  const [applicantPagination, setApplicantPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 12 });
+  const [applicantPagination, setApplicantPagination] = useState({ total: 0, totalPages: 0, page: 1, limit: 10 });
   const [exportLoading, setExportLoading] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [resetPwOpen, setResetPwOpen] = useState(false);
+  const [resetPwTarget, setResetPwTarget] = useState(null);
+  const [resetPwValue, setResetPwValue] = useState("");
+  const [resetPwError, setResetPwError] = useState("");
+  const [resetPwLoading, setResetPwLoading] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusTarget, setStatusTarget] = useState(null);
 
   const fetchTeachers = async () => {
     try {
       setLoading(true);
-      const response = await teacherApi.getAllTeachers({ ...tFilters, page: teacherPage, limit: 12 });
+      const response = await teacherApi.getAllTeachers({ ...tFilters, page: teacherPage, limit: 10 });
       setTeachers(response.data.teachers || []);
-      setTeacherPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 12 });
+      setTeacherPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
       console.error("Error fetching teachers:", error);
       toast.error(error.message || "د ښوونکو په ترلاسه کولو کې تېروتنه");
@@ -278,9 +305,9 @@ export default function TeachersPage() {
   const fetchApplicants = async () => {
     try {
       setLoading(true);
-      const response = await teacherApi.getAllApplicants({ ...aFilters, page: applicantPage, limit: 12 });
+      const response = await teacherApi.getAllApplicants({ ...aFilters, page: applicantPage, limit: 10 });
       setApplicants(response.data.applicants || []);
-      setApplicantPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 12 });
+      setApplicantPagination(response.data.pagination || { total: 0, totalPages: 0, page: 1, limit: 10 });
     } catch (error) {
       console.error("Error fetching applicants:", error);
       toast.error(error.message || "د غوښتونکو په ترلاسه کولو کې تېروتنه");
@@ -293,8 +320,7 @@ export default function TeachersPage() {
   useEffect(() => {
     if (tab === "teachers") {
       // Set default filter to current year if no filters are set
-      const currentYear = new Date().getFullYear();
-      const defaultFilters = Object.keys(tFilters).length === 0 ? { joiningYear: currentYear } : tFilters;
+      const defaultFilters = Object.keys(tFilters).length === 0 ? { joiningYear: String(currentShamsiYear()) } : tFilters;
       
       if (JSON.stringify(defaultFilters) !== JSON.stringify(tFilters)) {
         setTFilters(defaultFilters);
@@ -321,18 +347,37 @@ export default function TeachersPage() {
     }
   };
 
+  const fetchTeacherClasses = async (types) => {
+    if (!types?.length) { setAvailableClasses([]); return; }
+    try {
+      const response = await teacherApi.getClassesByTeacherTypes(types, currentShamsiYear());
+      setAvailableClasses(response.data.classes || []);
+    } catch {
+      setAvailableClasses([]);
+    }
+  };
+
   const toggleTeacherType = (type) => {
     setTeacher((prev) => {
       const currentTypes = Array.isArray(prev.teacherType) ? prev.teacherType : [];
       const newTypes = currentTypes.includes(type)
         ? currentTypes.filter(t => t !== type)
         : [...currentTypes, type];
-      return { ...prev, teacherType: newTypes };
+      fetchTeacherClasses(newTypes);
+      return { ...prev, teacherType: newTypes, assignedClasses: [] };
     });
-    // Clear error when user selects a type
     if (teacherErrors.teacherType) {
       setTeacherErrors((e) => ({ ...e, teacherType: "" }));
     }
+  };
+
+  const toggleAssignedClass = (classId) => {
+    setTeacher((prev) => {
+      const current = Array.isArray(prev.assignedClasses) ? prev.assignedClasses : [];
+      const id = Number(classId);
+      const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
+      return { ...prev, assignedClasses: next };
+    });
   };
   
   const setA = (k, v) => {
@@ -343,15 +388,23 @@ export default function TeachersPage() {
     }
   };
 
-  const openEditTeacher = (t) => { 
-    setTeacher({ ...EMPTY_TEACHER, ...t }); 
+  const openEditTeacher = (t) => {
+    const types = Array.isArray(t.teacherType) ? t.teacherType : ["School"];
+    fetchTeacherClasses(types);
+    setTeacher({
+      ...EMPTY_TEACHER,
+      ...t,
+      assignedClasses: t.assignedClasses || [],
+    });
     setTeacherErrors({});
     setTeacherImageFile(null);
     setIsEditing(true);
-    setTeacherOpen(true); 
+    setTeacherOpen(true);
   };
   
   const openAddTeacher = () => {
+    const defaultTypes = EMPTY_TEACHER.teacherType;
+    fetchTeacherClasses(defaultTypes);
     setTeacher({ ...EMPTY_TEACHER, joiningDate: getToday() });
     setTeacherErrors({});
     setTeacherImageFile(null);
@@ -381,13 +434,81 @@ export default function TeachersPage() {
     }
   };
 
-  const openViewTeacher = (t) => { setSelected(t); setSelectedKind("teacher"); setViewOpen(true); };
+  const openViewTeacher = async (t) => {
+    try {
+      const response = await teacherApi.getTeacherById(t.id);
+      setSelected(response.data.teacher);
+      setSelectedKind("teacher");
+      setViewOpen(true);
+    } catch (error) {
+      toast.error(error.message || "د ښوونکي معلومات ترلاسه نه شول");
+    }
+  };
+
+  const openToggleTeacherStatus = (t) => { setStatusTarget(t); setStatusOpen(true); };
+
+  const handleToggleTeacherStatus = async () => {
+    if (!statusTarget) return;
+    const newStatus = statusTarget.status === "inactive" ? "active" : "inactive";
+    try {
+      await teacherApi.toggleTeacherStatus(statusTarget.id, newStatus);
+      toast.success(newStatus === "active" ? "ښوونکی فعال شو" : "ښوونکی غیر فعال شو");
+      fetchTeachers();
+    } catch (error) {
+      toast.error(error.message || "د حالت بدلولو کې تېروتنه");
+    }
+  };
+
+  useEffect(() => {
+    const openId = searchParams.get("openId");
+    if (openId && searchParams.get("openView")) {
+      setTab("teachers");
+      setTFilters((prev) => ({ ...prev, id: openId }));
+      openViewTeacher({ id: Number(openId) });
+      searchParams.delete("openId");
+      searchParams.delete("openView");
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const openViewApplicant = (a) => { setSelected(a); setSelectedKind("applicant"); setViewOpen(true); };
   const openDeleteTeacher   = (t) => { setDeleteTarget({ item: t, kind: "teacher" }); setDeleteOpen(true); };
+  const openResetPassword   = (t) => { setResetPwTarget(t); setResetPwValue(""); setResetPwError(""); setResetPwOpen(true); };
+
+  const handleResetPassword = async () => {
+    if (!resetPwTarget) return;
+    if (!resetPwValue || resetPwValue.length < 6) {
+      setResetPwError("پاسورډ باید لږ تر لږه ۶ توري ولري");
+      return;
+    }
+    setResetPwError("");
+    setResetPwLoading(true);
+    try {
+      await teacherApi.resetTeacherPassword(resetPwTarget.id, resetPwValue);
+      toast.success("پاسورډ بریالۍ بدل شو");
+      setResetPwOpen(false);
+      setResetPwTarget(null);
+      setResetPwValue("");
+      setResetPwError("");
+    } catch (error) {
+      setResetPwError(error.message || "د پاسورډ بدلولو کې تېروتنه");
+    } finally {
+      setResetPwLoading(false);
+    }
+  };
   const openDeleteApplicant = (a) => { setDeleteTarget({ item: a, kind: "applicant" }); setDeleteOpen(true); };
 
   const handleSaveTeacher = async () => {
     const errors = validateTeacher(teacher);
+    if (!isEditing) {
+      if (!teacher.username?.trim()) errors.username = "د کارن نوم اړین دی";
+      if (!teacher.password?.trim()) errors.password = "پاسورډ اړین دی";
+      else if (teacher.password.length < 6) errors.password = "پاسورډ باید لږ تر لږه ۶ توري ولري";
+    } else {
+      if (teacher.password?.trim() && teacher.password.length < 6) {
+        errors.password = "پاسورډ باید لږ تر لږه ۶ توري ولري";
+      }
+    }
     if (Object.keys(errors).length > 0) {
       setTeacherErrors(errors);
       return;
@@ -395,13 +516,15 @@ export default function TeachersPage() {
 
     try {
       setLoading(true);
-      console.log("Teacher", teacher);
-      const { image: _img, removeImage, ...teacherData } = teacher;
+      const { image: _img, removeImage, username, password, ...teacherData } = teacher;
+      const payload = isEditing
+        ? { ...teacherData, username, ...(password?.trim() ? { password } : {}) }
+        : { ...teacherData, username, password };
       if (isEditing && teacher.id) {
-        const response = await teacherApi.updateTeacher(teacher.id, { ...teacherData, removeImage: teacher.removeImage }, teacherImageFile);
+        const response = await teacherApi.updateTeacher(teacher.id, { ...payload, removeImage: teacher.removeImage }, teacherImageFile);
         toast.success(response.message || "ښوونکی بریالیتوب سره تازه شو");
       } else {
-        const response = await teacherApi.createTeacher(teacherData, teacherImageFile);
+        const response = await teacherApi.createTeacher(payload, teacherImageFile);
         toast.success(response.message || "ښوونکی بریالیتوب سره ثبت شو");
       }
       setTeacherOpen(false);
@@ -420,7 +543,7 @@ export default function TeachersPage() {
       }
     } catch (error) {
       console.error("Error saving teacher:", error);
-      toast.error(error.message || "د ښوونکي په ثبتولو کې تېروتنه");
+      setTeacherErrors(mapTeacherApiError(error.message));
     } finally {
       setLoading(false);
     }
@@ -527,8 +650,7 @@ export default function TeachersPage() {
   const handleExportAllTeachers = async () => {
     try {
       setLoading(true);
-      const currentYear = new Date().getFullYear();
-      const exportFilters = Object.keys(tFilters).length > 0 ? tFilters : { joiningYear: currentYear };
+      const exportFilters = Object.keys(tFilters).length > 0 ? tFilters : { joiningYear: String(currentShamsiYear()) };
       const response = await teacherApi.getAllTeachers({ ...exportFilters, page: 1, limit: 10000 });
       const allTeachers = response.data.teachers || [];
       
@@ -571,42 +693,6 @@ export default function TeachersPage() {
     }
   };
 
-  // PDF export — teachers
-  const handlePdfTeachers = async () => {
-    try {
-      setPdfLoading(true);
-      const currentYear = new Date().getFullYear();
-      const exportFilters = Object.keys(tFilters).length > 0 ? tFilters : { joiningYear: currentYear };
-      const response = await teacherApi.getAllTeachers({ ...exportFilters, page: 1, limit: 10000 });
-      const all = response.data.teachers || [];
-      if (!all.length) { toast.error("د صادرولو لپاره هیڅ ښوونکی شتون نلري"); return; }
-      await exportTeachersPDF(all, exportFilters, EDU_LABEL);
-      toast.success(`${all.length} ښوونکي بریالیتوب سره صادر شول`);
-    } catch (error) {
-      toast.error(error.message || "د PDF په جوړولو کې تېروتنه");
-    } finally {
-      setPdfLoading(false);
-    }
-  };
-
-  // PDF export — applicants
-  const handlePdfApplicants = async () => {
-    try {
-      setPdfLoading(true);
-      const currentYear = new Date().getFullYear();
-      const exportFilters = Object.keys(aFilters).length > 0 ? aFilters : { appliedYear: currentYear };
-      const response = await teacherApi.getAllApplicants({ ...exportFilters, page: 1, limit: 10000 });
-      const all = response.data.applicants || [];
-      if (!all.length) { toast.error("د صادرولو لپاره هیڅ غوښتونکی شتون نلري"); return; }
-      await exportApplicantsPDF(all, exportFilters, EDU_LABEL);
-      toast.success(`${all.length} غوښتونکي بریالیتوب سره صادر شول`);
-    } catch (error) {
-      toast.error(error.message || "د PDF په جوړولو کې تېروتنه");
-    } finally {
-      setPdfLoading(false);
-    }
-  };
-
   const filteredTeachers   = teachers;
   const filteredApplicants = applicants;
 
@@ -618,23 +704,26 @@ export default function TeachersPage() {
       flex: 1.2,
       minWidth: 150,
     },
-    { 
-      field: "fatherName", 
+    {
+      field: "fatherName",
       headerName: "د پلار نوم",
       flex: 1.1,
       minWidth: 140,
+      hideOnMobile: true,
     },
-    { 
-      field: "phone", 
+    {
+      field: "phone",
       headerName: "ټېلیفون",
       flex: 1,
       minWidth: 130,
+      hideOnMobile: true,
     },
-    { 
-      field: "teacherType", 
+    {
+      field: "teacherType",
       headerName: "ډول",
       flex: 1,
       minWidth: 120,
+      hideOnMobile: true,
       cellRenderer: (params) => {
         if (!params.value || !Array.isArray(params.value)) return "—";
         return (
@@ -644,20 +733,6 @@ export default function TeachersPage() {
               return <Badge key={type} variant={t?.variant ?? "muted"}>{t?.label ?? type}</Badge>;
             })}
           </span>
-        );
-      }
-    },
-    { 
-      field: "education", 
-      headerName: "زده کړه",
-      flex: 0.9,
-      minWidth: 120,
-      cellRenderer: (params) => {
-        if (!params.value) return "—";
-        return (
-          <Badge variant={EDU_VARIANT[params.value] ?? "muted"}>
-            {EDU_LABEL[params.value] ?? params.value}
-          </Badge>
         );
       }
     },
@@ -674,8 +749,8 @@ export default function TeachersPage() {
     { 
       field: "actions", 
       headerName: "",
-      flex: 0.8,
-      minWidth: 120,
+      flex: 1,
+      minWidth: 150,
       sortable: false,
       filter: false,
       cellRenderer: (params) => {
@@ -695,6 +770,18 @@ export default function TeachersPage() {
               className="p-1.5 rounded hover:bg-muted text-muted-foreground"
             >
               <Pencil className="size-3.5" />
+            </button>
+            {t.userId && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openResetPassword(t); }}
+                title="پاسورډ بیا تنظیمول"
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground"
+              >
+                <KeyRound className="size-3.5" />
+              </button>
+            )}
+            <button onClick={(e) => { e.stopPropagation(); openToggleTeacherStatus(t); }} title={t.status === "inactive" ? "فعالول" : "غیر فعالول"} className={`p-1.5 rounded hover:bg-muted ${t.status === "inactive" ? "text-success" : "text-warning"}`}>
+              {t.status === "inactive" ? <UserCheck className="size-3.5" /> : <UserX className="size-3.5" />}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); openDeleteTeacher(t); }} 
@@ -717,23 +804,26 @@ export default function TeachersPage() {
       flex: 1.3,
       minWidth: 160,
     },
-    { 
-      field: "fatherName", 
+    {
+      field: "fatherName",
       headerName: "د پلار نوم",
       flex: 1.2,
       minWidth: 150,
+      hideOnMobile: true,
     },
-    { 
-      field: "phone", 
+    {
+      field: "phone",
       headerName: "ټېلیفون",
       flex: 1,
       minWidth: 130,
+      hideOnMobile: true,
     },
-    { 
-      field: "education", 
+    {
+      field: "education",
       headerName: "زده کړه",
       flex: 0.9,
       minWidth: 120,
+      hideOnMobile: true,
       cellRenderer: (params) => {
         if (!params.value) return "—";
         return (
@@ -820,7 +910,12 @@ export default function TeachersPage() {
 
       {tab === "teachers" && (
         <>
-          <FilterBar filters={TEACHER_FILTERS} onApply={(filters) => { setTFilters(filters); setTeacherPage(1); }} onClear={() => { setTFilters({}); setTeacherPage(1); }} />
+          <FilterBar 
+            filters={TEACHER_FILTERS}
+            defaultValues={{ joiningYear: String(currentShamsiYear()) }}
+            onApply={(filters) => { setTFilters(filters); setTeacherPage(1); }}
+            onClear={(cleared) => { setTFilters(cleared || { joiningYear: String(currentShamsiYear()) }); setTeacherPage(1); }}
+          />
           <AgGridTable
             columnDefs={teacherColumnDefs}
             rowData={filteredTeachers}
@@ -828,7 +923,7 @@ export default function TeachersPage() {
             emptyText="هیڅ ښوونکی ونه موندل شو"
             searchPlaceholder="د ښوونکي نوم، ټېلیفون..."
             serverSidePagination={true}
-            pageSize={teacherPagination.limit || 12}
+            pageSize={teacherPagination.limit || 10}
             totalRows={teacherPagination.total}
             currentPage={teacherPage}
             totalPages={teacherPagination.totalPages}
@@ -837,15 +932,18 @@ export default function TeachersPage() {
             enableExport={true}
             exportFileName="teachers"
             onExportClick={handleExportAllTeachers}
-            onPdfClick={handlePdfTeachers}
             exportLoading={exportLoading}
-            pdfLoading={pdfLoading}
           />
         </>
       )}
       {tab === "applicants" && (
         <>
-          <FilterBar filters={APPLICANT_FILTERS} onApply={(filters) => { setAFilters(filters); setApplicantPage(1); }} onClear={() => { setAFilters({}); setApplicantPage(1); }} />
+          <FilterBar
+            filters={APPLICANT_FILTERS}
+            defaultValues={{ appliedYear: String(currentShamsiYear()) }}
+            onApply={(filters) => { setAFilters(filters); setApplicantPage(1); }}
+            onClear={(cleared) => { setAFilters(cleared || { appliedYear: String(currentShamsiYear()) }); setApplicantPage(1); }}
+          />
           <AgGridTable
             columnDefs={applicantColumnDefs}
             rowData={filteredApplicants}
@@ -853,7 +951,7 @@ export default function TeachersPage() {
             emptyText="هیڅ غوښتونکی ونه موندل شو"
             searchPlaceholder="د غوښتونکي نوم، ټېلیفون..."
             serverSidePagination={true}
-            pageSize={applicantPagination.limit || 12}
+            pageSize={applicantPagination.limit || 10}
             totalRows={applicantPagination.total}
             currentPage={applicantPage}
             totalPages={applicantPagination.totalPages}
@@ -862,9 +960,7 @@ export default function TeachersPage() {
             enableExport={true}
             exportFileName="applicants"
             onExportClick={handleExportAllApplicants}
-            onPdfClick={handlePdfApplicants}
             exportLoading={exportLoading}
-            pdfLoading={pdfLoading}
           />
         </>
       )}
@@ -895,6 +991,23 @@ export default function TeachersPage() {
                 <DV label="د غوښتنې نېټه" value={selected.appliedAt} />
               )}
               {selectedKind === "teacher" && <DV label="د شمولیت نېټه" value={selected.joiningDate} />}
+              {selectedKind === "teacher" && selected.salaryDetails && (
+                <>
+                  <DV label="د دې میاشتې معاش" value={`AFN ${Number(selected.salaryDetails.netSalary || 0).toLocaleString()}`} />
+                  <DV label="ورکړل شوی" value={`AFN ${Number(selected.salaryDetails.paid || 0).toLocaleString()}`} />
+                  <DV label="د معاش حالت" value={selected.salaryDetails.isPaid ? "ورکړل شوی" : "پاتې"} />
+                </>
+              )}
+              {selectedKind === "teacher" && selected.assignedClassDetails?.length > 0 && (
+                <div className="col-span-2">
+                  <p className="text-[11px] text-muted-foreground mb-1">ټولګي</p>
+                  <div className="flex flex-wrap gap-1">
+                    {selected.assignedClassDetails.map((c) => (
+                      <Badge key={c.id} variant="outline">{c.name}{c.section ? ` - ${c.section}` : ""}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               <DV label="مهارتونه" value={selected.skills} />
               <DV label="پته" value={selected.address} />
               {selected.notes && <div className="col-span-2"><DV label="یادښتونه" value={selected.notes} /></div>}
@@ -936,6 +1049,9 @@ export default function TeachersPage() {
           </button>
         </>}
       >
+        {teacherErrors._form && (
+          <p className="text-xs text-destructive mb-3 bg-destructive/10 border border-destructive/20 rounded px-3 py-2">{teacherErrors._form}</p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <F label="بشپړ نوم"><Input value={teacher.name} handleChanges={(e) => setT("name", e.target.value)} placeholder="بشپړ نوم" /></F>
@@ -958,8 +1074,24 @@ export default function TeachersPage() {
             {teacherErrors.education && <p className="text-xs text-destructive mt-1">{teacherErrors.education}</p>}
           </div>
           <div>
-            <F label="معاش (افغانۍ)" opt><Input type="number" value={teacher.salary} handleChanges={(e) => setT("salary", e.target.value)} placeholder="0" /></F>
+            <F label="معاش (افغانۍ)"><Input type="number" value={teacher.salary} handleChanges={(e) => setT("salary", e.target.value)} placeholder="0" /></F>
             {teacherErrors.salary && <p className="text-xs text-destructive mt-1">{teacherErrors.salary}</p>}
+          </div>
+          <div>
+            <F label="د کارن نوم"><Input value={teacher.username} handleChanges={(e) => setT("username", e.target.value)} placeholder="د ننوتلو کارن نوم" dir="ltr" /></F>
+            {teacherErrors.username && <p className="text-xs text-destructive mt-1">{teacherErrors.username}</p>}
+          </div>
+          <div>
+            <F label={isEditing ? "نوی پاسورډ (اختیاري)" : "پاسورډ"}>
+              <Input
+                type="password"
+                value={teacher.password}
+                handleChanges={(e) => setT("password", e.target.value)}
+                placeholder={isEditing ? "خالی پرېږدئ که نه بدلېږي" : "لږ تر لږه ۶ توري"}
+                dir="ltr"
+              />
+            </F>
+            {teacherErrors.password && <p className="text-xs text-destructive mt-1">{teacherErrors.password}</p>}
           </div>
           <div className="col-span-2">
             <span className="text-xs text-muted-foreground block mb-1.5">د ښوونکي ډول</span>
@@ -977,7 +1109,32 @@ export default function TeachersPage() {
             {teacherErrors.teacherType && <p className="text-xs text-destructive mt-1">{teacherErrors.teacherType}</p>}
           </div>
           <div>
-            <F label="د شمولیت نېټه" opt><Input type="date" value={teacher.joiningDate} handleChanges={(e) => setT("joiningDate", e.target.value)} /></F>
+            <F label="د شمولیت نېټه">
+              <ShamsiDatePicker value={teacher.joiningDate} onChange={(d) => setT("joiningDate", d)} placeholder="د شمولیت نېټه" />
+            </F>
+          </div>
+          <div className="col-span-2">
+            <span className="text-xs text-muted-foreground block mb-1.5">ټولګي وټاکئ</span>
+            <div className="border border-input rounded-md max-h-40 overflow-y-auto p-2 space-y-1.5 bg-background">
+              {availableClasses.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-3">د ټاکل شوي ډول لپاره ټولګي ونه موندل شول</p>
+              ) : (
+                availableClasses.map((cls) => {
+                  const active = teacher.assignedClasses?.includes(cls.id);
+                  return (
+                    <label key={cls.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!active}
+                        onChange={() => toggleAssignedClass(cls.id)}
+                        className="size-4 rounded border-input accent-primary shrink-0"
+                      />
+                      <span>{cls.name}{cls.section ? ` - ${cls.section}` : ""} ({TEACHER_TYPES.find(t => t.value === cls.type)?.label})</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
           </div>
           <div>
             <F label="مهارتونه" opt><Input value={teacher.skills} handleChanges={(e) => setT("skills", e.target.value)} placeholder="مهارتونه..." /></F>
@@ -1045,6 +1202,44 @@ export default function TeachersPage() {
           </div>
         </div>
       </ErpModal>
+
+      <ErpModal
+        open={resetPwOpen}
+        onOpenChange={setResetPwOpen}
+        title="د ښوونکي پاسورډ بیا تنظیمول"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setResetPwOpen(false)} disabled={resetPwLoading} className="px-3 py-1.5 text-sm border border-input rounded hover:bg-muted disabled:opacity-50">لغوه</button>
+            <button onClick={handleResetPassword} disabled={resetPwLoading} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded disabled:opacity-50">
+              {resetPwLoading ? "په پروسس کې..." : "ساتل"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            د <span className="font-medium text-foreground">{resetPwTarget?.name}</span> لپاره نوی پاسورډ ولیکئ
+          </p>
+          <Input
+            type="password"
+            label="نوی پاسورډ"
+            value={resetPwValue}
+            handleChanges={(e) => { setResetPwValue(e.target.value); if (resetPwError) setResetPwError(""); }}
+            disabled={resetPwLoading}
+            placeholder="لږ تر لږه ۶ توري"
+          />
+          {resetPwError && <p className="text-xs text-destructive">{resetPwError}</p>}
+        </div>
+      </ErpModal>
+
+      <ConfirmStatus
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        onConfirm={handleToggleTeacherStatus}
+        title={statusTarget?.name}
+        action={statusTarget?.status === "inactive" ? "activate" : "deactivate"}
+      />
 
       <ConfirmDelete
         open={deleteOpen}
